@@ -13,12 +13,23 @@ DiskService
 NetworkService
 FileService
 }
-enum "io::protocol::ModemCommand" as C_0010997942004027913014
-enum C_0010997942004027913014 {
-Write
+enum "io::protocol::AppStoreCommand" as C_0006374947442224284008
+enum C_0006374947442224284008 {
+Stat
 Read
-Status
-Control
+Write
+Delete
+List
+}
+enum "io::protocol::NetworkCommand" as C_0007700754280455587098
+enum C_0007700754280455587098 {
+Open
+Read
+Write
+Close
+Info
+InfoRead
+TranslateConfigure
 }
 enum "io::protocol::SlipByte" as C_0010627602090167488081
 enum C_0010627602090167488081 {
@@ -81,36 +92,6 @@ WriteFile
 ResolvePath
 MakeDirectory
 }
-enum "io::protocol::HostCommand" as C_0007123260493549580442
-enum C_0007123260493549580442 {
-GetCurrent
-SetCurrent
-ListHistory
-SelectHistory
-DeleteHistory
-}
-enum "io::protocol::NetworkCommand" as C_0007700754280455587098
-enum C_0007700754280455587098 {
-Open
-Read
-Write
-Close
-Info
-InfoRead
-TranslateConfigure
-}
-enum "io::protocol::SlotCatalogCommand" as C_0000459409847653698260
-enum C_0000459409847653698260 {
-Get
-Put
-Delete
-Range
-}
-enum "io::protocol::FujiCommand" as C_0004628219160953719395
-enum C_0004628219160953719395 {
-Reset
-GetSsid
-}
 enum "io::protocol::DiskCommand" as C_0015699043703645047876
 enum C_0015699043703645047876 {
 Mount
@@ -129,13 +110,20 @@ ListMounts
 Flush
 Inspect
 }
-enum "io::protocol::AppStoreCommand" as C_0006374947442224284008
-enum C_0006374947442224284008 {
-Stat
-Read
-Write
+enum "io::protocol::HostCommand" as C_0007123260493549580442
+enum C_0007123260493549580442 {
+GetCurrent
+SetCurrent
+ListHistory
+SelectHistory
+DeleteHistory
+}
+enum "io::protocol::SlotCatalogCommand" as C_0000459409847653698260
+enum C_0000459409847653698260 {
+Get
+Put
 Delete
-List
+Range
 }
 enum "io::protocol::WifiCommand" as C_0015484389551772629797
 enum C_0015484389551772629797 {
@@ -143,6 +131,18 @@ GetStatus
 GetConfig
 SetConfig
 Scan
+}
+enum "io::protocol::ModemCommand" as C_0010997942004027913014
+enum C_0010997942004027913014 {
+Write
+Read
+Status
+Control
+}
+enum "io::protocol::FujiCommand" as C_0004628219160953719395
+enum C_0004628219160953719395 {
+Reset
+GetSsid
 }
 C_0017232777488057089840 o-- C_0015225225004340369839 : -_device
 C_0017232777488057089840 o-- C_0003277087640557799971 : -_params
