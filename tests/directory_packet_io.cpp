@@ -230,7 +230,17 @@ PacketReceiveResult DirectoryPacketIO::receive(std::uint8_t* buffer, std::size_t
         return {PacketIOStatus::Unavailable};
     }
 
-    const std::string path = receive_path();
+    std::string path = receive_path();
+    std::string ready;
+    bool legacy_ready = false;
+    if (_role == DirectoryPacketRole::Host) {
+        ready = path + ".ready";
+        struct stat ready_st {};
+        if (::stat(ready.c_str(), &ready_st) == 0) {
+            path += ".tmp";
+            legacy_ready = true;
+        }
+    }
     struct stat st {};
     if (::stat(path.c_str(), &st) != 0) {
         if (errno == ENOENT) {
@@ -246,6 +256,7 @@ PacketReceiveResult DirectoryPacketIO::receive(std::uint8_t* buffer, std::size_t
     const auto size = static_cast<std::size_t>(st.st_size);
     if (size == 0) {
         (void)unlink_if_present(path);
+        if (legacy_ready) (void)unlink_if_present(ready);
         return {PacketIOStatus::EmptyPacket};
     }
     if (size > capacity() || size > limit) {
@@ -280,6 +291,8 @@ PacketReceiveResult DirectoryPacketIO::receive(std::uint8_t* buffer, std::size_t
     if (unlink_if_present(path) != PacketIOStatus::Ok) {
         return {PacketIOStatus::Unavailable};
     }
+    if (legacy_ready && unlink_if_present(ready) != PacketIOStatus::Ok)
+        return {PacketIOStatus::Unavailable};
     std::memcpy(buffer, staging.data(), size);
     return {PacketIOStatus::Ok, size};
 }
