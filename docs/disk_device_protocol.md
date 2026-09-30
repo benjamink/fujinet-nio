@@ -106,7 +106,9 @@ v1 includes (image-format understanding required for sector I/O):
 - **Raw** (`ImageType::Raw`): flat `sector_count * sector_size` bytes, **no header**
   - used for tests and tooling
   - probes known filesystem/image signatures to infer geometry when possible
-  - falls back to 256-byte sectors when no probe recognizes the file
+  - never guesses a sector size: when neither content, an unambiguous
+    extension nor the client's `sector_size_hint` gives the geometry, the
+    mount fails with `GeometryRequired` (see the detection policy)
   - persisted runtime mounts can provide `sector_size_hint` for headerless raw
     images where geometry cannot be inferred from file content
   - `.adf` is recognized case-insensitively as raw 512-byte media; its geometry
@@ -174,13 +176,15 @@ them, so detection must never guess:
 
 1. **Content wins.** A format with a signature (ATR, DiskCopy 4.2, a FAT boot
    sector, a DFS catalogue) is recognized by its content, whatever the file is
-   called.
+   called, and its geometry overrides any sector size hint the client sent.
 2. **Only unambiguous extensions imply geometry.** An extension may select a
    type or geometry only if it means the same thing on every machine:
    `.atr`, `.ssd`, `.dsd`, `.adf`, `.hda`, `.hfv`.
-3. **Ambiguous extensions need content or the client.** `.img`, `.ima` and
-   `.raw` are raw, but get geometry only from content or the client's sector
-   size hint; without either the mount fails rather than guessing. `.dsk`
+3. **Nothing is guessed.** `.img`, `.ima` and `.raw` are raw, but get
+   geometry only from content or the client's sector size hint. An explicit
+   `Raw` type is no different. Without either, the mount fails with
+   `GeometryRequired`; with a hint that does not divide the file size, with
+   `InvalidGeometry`. `.dsk`
    (Apple II, Macintosh, Amstrad CPC, MSX, TRS-80, ...) is not claimed by
    extension at all: content probes still recognize DiskCopy 4.2 `.dsk`
    files, and otherwise the client passes the image type and sector size its
@@ -695,14 +699,40 @@ u8  slot
 
 ## Status and error mapping
 
-`DiskDevice` returns a transport-level `StatusCode` and optionally includes a disk-level `lastError` in the `Info` payload.
+Every response carries a transport-level `StatusCode`. Every failed response
+to a known DiskDevice command also carries the exact `disk::DiskError` as its
+payload, so a client can report why without a follow-up request:
 
-General mapping:
+```
+u8  version       // 1
+u8  diskError     // disk::DiskError, below
+```
 
-- Invalid inputs and out-of-range values → `StatusCode::InvalidRequest`
-- Missing/empty slot → `StatusCode::NotReady`
-- Unsupported image type → `StatusCode::Unsupported`
-- Underlying file I/O failure → `StatusCode::IOError`
+Successful responses are unchanged. `Info` still reports the slot's most
+recent error as `lastError`. An unknown command returns `Unsupported` with no
+payload.
+
+| Value | `DiskError` | `StatusCode` | Meaning | Client action |
+|------:|-------------|--------------|---------|---------------|
+| 0 | `None` | `Ok` | Success | |
+| 1 | `InvalidSlot` | `InvalidRequest` | Slot number out of range | Use a slot from 1 to the unit count |
+| 2 | `InvalidRequest` | `InvalidRequest` | Malformed request fields or lengths | Fix the request |
+| 3 | `NoSuchFileSystem` | `InvalidRequest` | The URI names no registered filesystem | Check the URI scheme or host |
+| 4 | `FileNotFound` | `InvalidRequest` | No image at that path | Check the path |
+| 5 | `AlreadyExists` | `InvalidRequest` | `Create` target exists without overwrite | Set overwrite, or choose another name |
+| 6 | `OpenFailed` | `IOError` | The image could not be opened | Check permissions or the network |
+| 7 | `UnsupportedImageType` | `Unsupported` | A recognized type NIO cannot handle (DSD, `Create` without a creator) | Use another format |
+| 8 | `BadImage` | `InvalidRequest` | A recognized format whose content or size is invalid | The image is damaged or mislabelled |
+| 9 | `InvalidGeometry` | `InvalidRequest` | The client's sector size does not fit the image | Pass the sector size this medium uses |
+| 10 | `NotMounted` | `NotReady` | No image in the slot (or no boot disk configured) | Mount first |
+| 11 | `ReadOnly` | `InvalidRequest` | Write to a read-only mount | Remount read-write |
+| 12 | `OutOfRange` | `InvalidRequest` | Sector beyond the end of the image | Stay within the geometry |
+| 13 | `IoError` | `IOError` | Reading or writing the image failed | Retry, or check the backing store |
+| 14 | `InternalError` | `InternalError` | An unexpected internal state | Report it |
+| 15 | `GeometryRequired` | `InvalidRequest` | NIO cannot determine the image's type or sector size from content or an unambiguous extension | Mount again with the type and sector size this machine uses |
+
+Values are part of the wire protocol: new ones are appended, never
+renumbered. fujinet-nio-lib names them `FN_DISK_ERR_*`.
 
 ---
 

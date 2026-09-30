@@ -178,7 +178,7 @@ TEST_CASE("Raw image uses probe-supplied geometry hint")
     CHECK(sector[12] == 0x02);
 }
 
-TEST_CASE("Raw image defaults isolated BPB bytes-per-sector without probe geometry")
+TEST_CASE("Raw image without probe geometry or a hint asks for the geometry")
 {
     FileStats stats;
     auto bytes = make_raw_bytes(256, 8);
@@ -188,9 +188,9 @@ TEST_CASE("Raw image defaults isolated BPB bytes-per-sector without probe geomet
     auto file = std::make_unique<TrackingFile>(bytes, stats, true);
     auto image = fujinet::disk::make_raw_disk_image();
 
-    REQUIRE(image->mount(std::move(file), bytes.size(), fujinet::disk::MountOptions{}).ok());
-    CHECK(image->geometry().sectorSize == 256);
-    CHECK(image->geometry().sectorCount == 8);
+    // Isolated BPB-like bytes are not a probe result; any size is a guess.
+    CHECK(image->mount(std::move(file), bytes.size(), fujinet::disk::MountOptions{}).error ==
+          fujinet::disk::DiskError::GeometryRequired);
 }
 
 TEST_CASE("Raw image accepts explicit non-FAT sector size hints")

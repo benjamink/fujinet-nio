@@ -138,7 +138,7 @@ TEST_CASE("write protection is a service error with zero write effects")
                                     write_payload(1, marker));
         REQUIRE(write.handled);
         CHECK(write.service.status == StatusCode::InvalidRequest);
-        check_reply(write, 4, {}, StatusCode::InvalidRequest);
+        check_reply(write, 4, {1, 11} /* ReadOnly */, StatusCode::InvalidRequest);
         CHECK(write.framed_ok);
         CHECK(write.framed.status == StatusCode::InvalidRequest);
         CHECK(write.request_transmissions == 1);
@@ -170,7 +170,7 @@ TEST_CASE("out-of-range requests are service errors with unchanged backing bytes
                                     write_payload(kSectorCount, marker));
         REQUIRE(write.handled);
         CHECK(write.service.status == StatusCode::InvalidRequest);
-        check_reply(write, 4, {}, StatusCode::InvalidRequest);
+        check_reply(write, 4, {1, 12} /* OutOfRange */, StatusCode::InvalidRequest);
         CHECK(write.framed.status == StatusCode::InvalidRequest);
         CHECK(world.write_effects() == 0);
         CHECK(world.image() == seed);
@@ -179,7 +179,7 @@ TEST_CASE("out-of-range requests are service errors with unchanged backing bytes
                                    read_payload(kSectorCount));
         REQUIRE(read.handled);
         CHECK(read.service.status == StatusCode::InvalidRequest);
-        check_reply(read, 3, {}, StatusCode::InvalidRequest);
+        check_reply(read, 3, {1, 12} /* OutOfRange */, StatusCode::InvalidRequest);
         CHECK(world.image() == seed);
         CHECK(neighbors_unchanged(seed, world.image(), 0));
     };

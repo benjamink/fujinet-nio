@@ -42,6 +42,28 @@ TYPE_RAW = 4
 TYPE_DC42 = 5
 
 
+# DiskError (matches C++ disk::DiskError; values are wire protocol). A failed
+# DiskDevice response carries {version, DiskError} as its payload.
+DISK_ERRORS = (
+    "None", "InvalidSlot", "InvalidRequest", "NoSuchFileSystem", "FileNotFound",
+    "AlreadyExists", "OpenFailed", "UnsupportedImageType", "BadImage",
+    "InvalidGeometry", "NotMounted", "ReadOnly", "OutOfRange", "IoError",
+    "InternalError", "GeometryRequired",
+)
+DISK_ERR_GEOMETRY_REQUIRED = 15
+
+
+def disk_error_name(code: int) -> str:
+    return DISK_ERRORS[code] if 0 <= code < len(DISK_ERRORS) else f"Unknown({code})"
+
+
+def parse_error_resp(payload: bytes):
+    """The DiskError of a failed response, or None if it carries none."""
+    if len(payload) == 2 and payload[0] == DISKPROTO_VERSION:
+        return payload[1]
+    return None
+
+
 def _lp_u16(s: str) -> bytes:
     b = s.encode("utf-8")
     if len(b) > 0xFFFF:

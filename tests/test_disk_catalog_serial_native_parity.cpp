@@ -88,7 +88,7 @@ TEST_CASE("Write flush eject remount and reconstructed firmware retain bytes cat
         w.read(1, expected); w.backing(expected); other_slot(w);
         w.simple(2, 1);
         w.info(1, empty_info(1));
-        w.expect(0xfc, 3, sector_request(1), StatusCode::NotReady, {});
+        w.expect(0xfc, 3, sector_request(1), StatusCode::NotReady, {1, 10} /* NotMounted */);
         w.runtime("v1\n7\t0\tr\thost:/disks/hd.adf\n");
         other_slot(w); w.backing(expected);
         w.select(100, 1, false, a, false);
@@ -119,7 +119,7 @@ TEST_CASE("Write flush eject remount and reconstructed firmware retain bytes cat
         w.read(1, expected); other_slot(w); w.backing(expected);
         write = sector_request(8);
         write.insert(write.end(), data.begin(), data.end());
-        w.expect(0xfc, 4, write, StatusCode::InvalidRequest, {});
+        w.expect(0xfc, 4, write, StatusCode::InvalidRequest, {1, 11} /* ReadOnly */);
         w.info(8, geometry(8, 0x33, true, true));
         w.info(1, geometry(1, 0x39, false, true));
         w.backing(expected);
@@ -129,7 +129,7 @@ TEST_CASE("Write flush eject remount and reconstructed firmware retain bytes cat
         CHECK(w.disk->restore_runtime_mounts() == std::vector<std::size_t>{7});
         CHECK_FALSE(w.disk->disk_service().get_pending_mount(0).has_value());
         w.info(1, empty_info(1, 0x20));
-        w.expect(0xfc, 3, sector_request(1), StatusCode::NotReady, {});
+        w.expect(0xfc, 3, sector_request(1), StatusCode::NotReady, {1, 10} /* NotMounted */);
         w.info(8, geometry(8, 0x3b, true, true));
         w.simple(6, 8);
         other_slot(w); w.backing(expected);
@@ -165,19 +165,19 @@ TEST_CASE("Catalogue errors RO protection and failed replacements keep establish
         auto expected = seed(false, 0x40);
         std::copy(data.begin(), data.end(), expected.begin() + 3 * 512);
         const auto flushes = w.fs->flush_count();
-        w.expect(0xfc, 1, mount(1, false, missing), StatusCode::InvalidRequest, {});
+        w.expect(0xfc, 1, mount(1, false, missing), StatusCode::InvalidRequest, {1, 4} /* FileNotFound */);
         // Existing semantics: old media survives, but dirty data is flushed and
         // lastError becomes FileNotFound (4); this is not transactional rollback.
         CHECK(w.fs->flush_count() == flushes + 1);
         w.info(1, geometry(1, 0x31, false, true, 4));
         w.read(1, expected); other_slot(w); w.backing(expected);
-        w.expect(0xfc, 1, mount(1, false, "host:/disks/bad.adf"), StatusCode::InvalidRequest, {});
+        w.expect(0xfc, 1, mount(1, false, "host:/disks/bad.adf"), StatusCode::InvalidRequest, {1, 8} /* BadImage */);
         w.info(1, geometry(1, 0x31, false, true, 8));
         w.read(1, expected); other_slot(w); w.backing(expected);
-        w.expect(0xfc, 1, mount(9, false, a), StatusCode::InvalidRequest, {});
+        w.expect(0xfc, 1, mount(9, false, a), StatusCode::InvalidRequest, {1, 1} /* InvalidSlot */);
         write = sector_request(8);
         write.insert(write.end(), data.begin(), data.end());
-        w.expect(0xfc, 4, write, StatusCode::InvalidRequest, {});
+        w.expect(0xfc, 4, write, StatusCode::InvalidRequest, {1, 11} /* ReadOnly */);
         other_slot(w); w.backing(expected);
         w.runtime("v1\n0\t0\trw\thost:/disks/a.adf\n7\t0\tr\thost:/disks/hd.adf\n");
         w.recreate();

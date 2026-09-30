@@ -31,7 +31,18 @@ enum class DiskError : std::uint8_t {
     OutOfRange,
     IoError,
     InternalError,
+    // The image's type or sector size cannot be determined from its content
+    // or an unambiguous extension; mount it again with an explicit type and/or
+    // sector size hint. Appended: DiskError values are on the wire.
+    GeometryRequired,
 };
+
+// DiskError values are wire protocol (failure payloads, Info.lastError, the
+// FN_DISK_ERR_* names in fujinet-nio-lib): append, never renumber.
+static_assert(static_cast<std::uint8_t>(DiskError::BadImage) == 8, "DiskError is on the wire");
+static_assert(static_cast<std::uint8_t>(DiskError::InvalidGeometry) == 9, "DiskError is on the wire");
+static_assert(static_cast<std::uint8_t>(DiskError::InternalError) == 14, "DiskError is on the wire");
+static_assert(static_cast<std::uint8_t>(DiskError::GeometryRequired) == 15, "DiskError is on the wire");
 
 struct DiskGeometry {
     std::uint16_t sectorSize{0};

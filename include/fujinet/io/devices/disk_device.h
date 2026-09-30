@@ -36,6 +36,10 @@ private:
 
     static constexpr std::uint8_t DISKPROTO_VERSION = 1;
 
+    // A response with the status for `e` and, for any error, the
+    // {DISKPROTO_VERSION, DiskError} failure payload.
+    static IOResponse disk_response(const IORequest& request, disk::DiskError e);
+
     struct RuntimeMountState {
         std::string uri;
         std::string mode;

@@ -21,16 +21,15 @@ public:
         DiskGeometry geometry{};
         if (opts.sectorSizeHint) {
             geometry.sectorSize = opts.sectorSizeHint;
-            if ((sizeBytes % geometry.sectorSize) != 0) return DiskResult{DiskError::BadImage};
+            if ((sizeBytes % geometry.sectorSize) != 0) return DiskResult{DiskError::InvalidGeometry};
             geometry.sectorCount = static_cast<std::uint32_t>(sizeBytes / geometry.sectorSize);
         } else if (opts.geometryHint.sectorSize != 0 || opts.geometryHint.sectorCount != 0) {
             if (!has_geometry(opts.geometryHint)) return DiskResult{DiskError::BadImage};
             geometry = opts.geometryHint;
         } else {
-            constexpr std::uint16_t defaultRawSectorSize = 256;
-            if ((sizeBytes % defaultRawSectorSize) != 0) return DiskResult{DiskError::BadImage};
-            geometry.sectorSize = defaultRawSectorSize;
-            geometry.sectorCount = static_cast<std::uint32_t>(sizeBytes / defaultRawSectorSize);
+            // Headerless media with no detected geometry and no client hint:
+            // any sector size would be a guess, so ask the client instead.
+            return DiskResult{DiskError::GeometryRequired};
         }
 
         if (geometry.sectorSize == 0 || geometry.sectorCount == 0) return DiskResult{DiskError::BadImage};

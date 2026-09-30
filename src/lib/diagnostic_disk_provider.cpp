@@ -56,6 +56,7 @@ static const char* disk_err_str(fujinet::disk::DiskError e) noexcept
         case DiskError::OutOfRange:         return "out_of_range";
         case DiskError::IoError:            return "io_error";
         case DiskError::InternalError:      return "internal_error";
+        case DiskError::GeometryRequired:   return "geometry_required";
     }
     return "unknown";
 }

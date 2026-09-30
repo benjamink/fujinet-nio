@@ -33,6 +33,7 @@ static const char* disk_error_name(DiskError e) noexcept
         case DiskError::OutOfRange: return "OutOfRange";
         case DiskError::IoError: return "IoError";
         case DiskError::InternalError: return "InternalError";
+        case DiskError::GeometryRequired: return "GeometryRequired";
     }
     return "Unknown";
 }
@@ -104,7 +105,9 @@ static DiskResult prepare_image(
             }
             type = probe.type;
             effective.geometryHint = probe.geometry;
-            if (probe.confidence == ImageProbeConfidence::Extension)
+            // Content and unambiguous extensions win over the client's hint;
+            // the hint only stands when it is what determined the geometry.
+            if (probe.confidence != ImageProbeConfidence::Hint)
                 effective.sectorSizeHint = 0;
         }
     } else if (type == ImageType::Raw && opts.sectorSizeHint == 0) {
@@ -119,7 +122,14 @@ static DiskResult prepare_image(
                 effective.sectorSizeHint = 0;
         }
     }
-    if (type == ImageType::Auto) return DiskResult{DiskError::UnsupportedImageType};
+    if (type == ImageType::Auto) {
+        // Nothing identified the image. Say whether the client's hint was the
+        // problem, or whether the client needs to supply the geometry.
+        if (opts.sectorSizeHint != 0 && (finfo.sizeBytes % opts.sectorSizeHint) != 0) {
+            return DiskResult{DiskError::InvalidGeometry};
+        }
+        return DiskResult{DiskError::GeometryRequired};
+    }
 
     auto image = registry.create(type);
     if (!image) return DiskResult{DiskError::UnsupportedImageType};

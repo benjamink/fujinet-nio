@@ -20,5 +20,28 @@ class DiskImageTypeTests(unittest.TestCase):
             disk._type_parse("woz")
 
 
+class DiskErrorTests(unittest.TestCase):
+    def test_names_match_cpp_disk_error(self):
+        # disk::DiskError in include/fujinet/disk/disk_types.h; wire values.
+        self.assertEqual(dp.disk_error_name(0), "None")
+        self.assertEqual(dp.disk_error_name(8), "BadImage")
+        self.assertEqual(dp.disk_error_name(15), "GeometryRequired")
+        self.assertEqual(dp.DISK_ERR_GEOMETRY_REQUIRED, 15)
+        self.assertEqual(dp.disk_error_name(99), "Unknown(99)")
+
+    def test_failure_payload_is_version_and_error(self):
+        self.assertEqual(dp.parse_error_resp(bytes([1, 15])), 15)
+        self.assertIsNone(dp.parse_error_resp(b""))
+        self.assertIsNone(dp.parse_error_resp(bytes([2, 15])))   # other version
+        self.assertIsNone(dp.parse_error_resp(bytes([1, 0, 0])))  # not a failure payload
+
+    def test_failed_mount_reports_the_disk_error(self):
+        class Pkt:
+            payload = bytes([1, 15])
+        text = disk._disk_error_str(Pkt())
+        self.assertIn("GeometryRequired", text)
+        self.assertIn("--sector-size", text)
+
+
 if __name__ == "__main__":
     unittest.main()

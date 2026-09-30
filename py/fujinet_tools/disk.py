@@ -35,6 +35,16 @@ def _status_str(code: int) -> str:
     return STATUS_TEXT.get(code, f"Unknown({code})")
 
 
+def _disk_error_str(pkt) -> str:
+    err = dp.parse_error_resp(pkt.payload)
+    if err is None:
+        return ""
+    hint = ""
+    if err == dp.DISK_ERR_GEOMETRY_REQUIRED:
+        hint = "; pass --type and --sector-size for this medium"
+    return f" disk_error={err} ({dp.disk_error_name(err)}){hint}"
+
+
 def _type_str(t: int) -> str:
     return TYPE_TEXT.get(t, f"unknown({t})")
 
@@ -91,7 +101,7 @@ def cmd_mount(args) -> int:
         return 2
     if not status_ok(pkt):
         st = int(pkt.params[0]) if pkt.params else -1
-        print(f"status={st} ({_status_str(st)})", file=sys.stderr)
+        print(f"status={st} ({_status_str(st)}){_disk_error_str(pkt)}", file=sys.stderr)
         return 1
 
     mr = dp.parse_mount_resp(pkt.payload)
@@ -119,7 +129,7 @@ def cmd_unmount(args) -> int:
         return 2
     if not status_ok(pkt):
         st = int(pkt.params[0]) if pkt.params else -1
-        print(f"status={st} ({_status_str(st)})", file=sys.stderr)
+        print(f"status={st} ({_status_str(st)}){_disk_error_str(pkt)}", file=sys.stderr)
         return 1
     print(f"unmounted=1 slot={args.slot}")
     return 0
@@ -133,11 +143,11 @@ def cmd_info(args) -> int:
         return 2
     if not status_ok(pkt):
         st = int(pkt.params[0]) if pkt.params else -1
-        print(f"status={st} ({_status_str(st)})", file=sys.stderr)
+        print(f"status={st} ({_status_str(st)}){_disk_error_str(pkt)}", file=sys.stderr)
         return 1
     ir = dp.parse_info_resp(pkt.payload)
     print(
-        "inserted=%d readonly=%d dirty=%d changed=%d slot=%d type=%s sector_size=%d sector_count=%d last_error=%d"
+        "inserted=%d readonly=%d dirty=%d changed=%d slot=%d type=%s sector_size=%d sector_count=%d last_error=%d (%s)"
         % (
             1 if ir.inserted else 0,
             1 if ir.readonly else 0,
@@ -148,6 +158,7 @@ def cmd_info(args) -> int:
             ir.sector_size,
             ir.sector_count,
             ir.last_error,
+            dp.disk_error_name(ir.last_error),
         )
     )
     return 0
@@ -166,7 +177,7 @@ def cmd_clear_changed(args) -> int:
         return 2
     if not status_ok(pkt):
         st = int(pkt.params[0]) if pkt.params else -1
-        print(f"status={st} ({_status_str(st)})", file=sys.stderr)
+        print(f"status={st} ({_status_str(st)}){_disk_error_str(pkt)}", file=sys.stderr)
         return 1
     print(f"cleared=1 slot={args.slot}")
     return 0
@@ -184,7 +195,7 @@ def cmd_read_sector(args) -> int:
         return 2
     if not status_ok(pkt):
         st = int(pkt.params[0]) if pkt.params else -1
-        print(f"status={st} ({_status_str(st)})", file=sys.stderr)
+        print(f"status={st} ({_status_str(st)}){_disk_error_str(pkt)}", file=sys.stderr)
         return 1
 
     rr = dp.parse_read_sector_resp(pkt.payload)
@@ -207,7 +218,7 @@ def cmd_write_sector(args) -> int:
         return 2
     if not status_ok(pkt):
         st = int(pkt.params[0]) if pkt.params else -1
-        print(f"status={st} ({_status_str(st)})", file=sys.stderr)
+        print(f"status={st} ({_status_str(st)}){_disk_error_str(pkt)}", file=sys.stderr)
         return 1
 
     wr = dp.parse_write_sector_resp(pkt.payload)
@@ -235,7 +246,7 @@ def cmd_create(args) -> int:
         return 2
     if not status_ok(pkt):
         st = int(pkt.params[0]) if pkt.params else -1
-        print(f"status={st} ({_status_str(st)})", file=sys.stderr)
+        print(f"status={st} ({_status_str(st)}){_disk_error_str(pkt)}", file=sys.stderr)
         return 1
 
     cr = dp.parse_create_resp(pkt.payload)
@@ -257,7 +268,11 @@ def register_subcommands(subparsers) -> None:
     pm.add_argument("--ro", action="store_true", help="Request readonly")
     pm.add_argument("--type", default="auto", help="auto|atr|ssd|dsd|raw|dc42")
     pm.add_argument(
-        "--sector-size", type=int, default=256, help="Sector size hint (used for raw)"
+        "--sector-size",
+        type=int,
+        default=0,
+        help="Sector size this medium uses, for images NIO cannot identify "
+        "(default: none; NIO reports GeometryRequired if it needs one)",
     )
     pm.set_defaults(fn=cmd_mount)
 

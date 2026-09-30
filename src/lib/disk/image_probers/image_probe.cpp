@@ -179,12 +179,14 @@ public:
             return {true, ImageType::Raw, geometry, ImageProbeConfidence::Extension};
         }
         if (is_raw_extension(ext)) {
+            // Ambiguous: only the client's hint can give geometry. Without a
+            // usable one, don't match, so the mount reports GeometryRequired
+            // (or InvalidGeometry for a hint that doesn't fit the file).
+            if (opts.sectorSizeHint == 0 || (sizeBytes % opts.sectorSizeHint) != 0) return {};
             DiskGeometry geometry{};
-            if (opts.sectorSizeHint != 0 && (sizeBytes % opts.sectorSizeHint) == 0) {
-                geometry.sectorSize = opts.sectorSizeHint;
-                geometry.sectorCount = static_cast<std::uint32_t>(sizeBytes / opts.sectorSizeHint);
-            }
-            return {true, ImageType::Raw, geometry, opts.sectorSizeHint ? ImageProbeConfidence::Hint : ImageProbeConfidence::Extension};
+            geometry.sectorSize = opts.sectorSizeHint;
+            geometry.sectorCount = static_cast<std::uint32_t>(sizeBytes / opts.sectorSizeHint);
+            return {true, ImageType::Raw, geometry, ImageProbeConfidence::Hint};
         }
         if (opts.sectorSizeHint != 0 && (sizeBytes % opts.sectorSizeHint) == 0) {
             DiskGeometry geometry{};

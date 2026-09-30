@@ -42,6 +42,7 @@ static const char* disk_error_name(DiskError e) noexcept
         case DiskError::OutOfRange: return "OutOfRange";
         case DiskError::IoError: return "IoError";
         case DiskError::InternalError: return "InternalError";
+        case DiskError::GeometryRequired: return "GeometryRequired";
     }
     return "Unknown";
 }
@@ -64,8 +65,22 @@ static StatusCode map_disk_error(DiskError e) noexcept
         case DiskError::OutOfRange:         return StatusCode::InvalidRequest;
         case DiskError::IoError:            return StatusCode::IOError;
         case DiskError::InternalError:      return StatusCode::InternalError;
+        case DiskError::GeometryRequired:   return StatusCode::InvalidRequest;
     }
     return StatusCode::InternalError;
+}
+
+// Every failure of a known command carries {version, DiskError}, so a client
+// can tell exactly why without a follow-up Info (see "Status and error
+// mapping" in docs/disk_device_protocol.md). Success payloads are set by the
+// caller.
+IOResponse DiskDevice::disk_response(const IORequest& request, DiskError e)
+{
+    IOResponse resp = make_base_response(request, map_disk_error(e));
+    if (e != DiskError::None) {
+        resp.payload = {DISKPROTO_VERSION, static_cast<std::uint8_t>(e)};
+    }
+    return resp;
 }
 
 static bool parse_slot_1based(std::uint8_t slot1, std::size_t& outIdx) noexcept
@@ -278,7 +293,7 @@ IOResponse DiskDevice::handle(const IORequest& request)
     diskproto::Reader r(request.payload.data(), request.payload.size());
     std::uint8_t ver = 0;
     if (!r.read_u8(ver) || ver != DISKPROTO_VERSION) {
-        return make_base_response(request, StatusCode::InvalidRequest);
+        return disk_response(request, DiskError::InvalidRequest);
     }
 
     switch (cmd) {
@@ -289,17 +304,17 @@ IOResponse DiskDevice::handle(const IORequest& request)
             if (!r.read_u8(flags) || !r.read_u8(typeRaw) ||
                 !r.read_u16le(sectorHint) || !r.read_u16le(bootBytes) ||
                 !r.read_lp_u16_string(uri))
-                return make_base_response(request, StatusCode::InvalidRequest);
-            if (bootBytes > 512) return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidRequest);
+            if (bootBytes > 512) return disk_response(request, DiskError::InvalidRequest);
             (void)flags;
 
             std::string uriStr(uri);
             HostState hostState(_storage);
             if (!hostState.resolve_target(uriStr, uriStr, nullptr))
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidRequest);
             auto [fs, resolvedPath] = _storage.resolveUri(uriStr);
             if (!fs || resolvedPath.empty())
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, fs ? DiskError::InvalidRequest : DiskError::NoSuchFileSystem);
 
             MountOptions opts{};
             opts.readOnlyRequested = true;
@@ -307,7 +322,7 @@ IOResponse DiskDevice::handle(const IORequest& request)
             opts.sectorSizeHint = sectorHint;
             disk::DiskMediaInspection inspected{};
             DiskResult result = _svc.inspect(fs->name(), resolvedPath, opts, bootBytes, inspected);
-            IOResponse resp = make_base_response(request, map_disk_error(result.error));
+            IOResponse resp = disk_response(request, result.error);
             if (resp.status != StatusCode::Ok) return resp;
 
             std::vector<std::uint8_t> out;
@@ -325,15 +340,15 @@ IOResponse DiskDevice::handle(const IORequest& request)
             std::uint16_t sectorHint = 0;
             std::string_view uri;
 
-            if (!r.read_u8(slot1)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u8(flags)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u8(typeRaw)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u16le(sectorHint)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_lp_u16_string(uri)) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!r.read_u8(slot1)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u8(flags)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u8(typeRaw)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u16le(sectorHint)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_lp_u16_string(uri)) return disk_response(request, DiskError::InvalidRequest);
 
             std::size_t idx = 0;
             if (!parse_slot_1based(slot1, idx) || idx >= _svc.slot_count()) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidSlot);
             }
 
             MountOptions opts{};
@@ -344,7 +359,7 @@ IOResponse DiskDevice::handle(const IORequest& request)
             std::string uriStr(uri);
             HostState hostState(_storage);
             if (!hostState.resolve_target(uriStr, uriStr, nullptr)) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidRequest);
             }
             auto [fs, resolvedPath] = _storage.resolveUri(uriStr);
             
@@ -354,7 +369,7 @@ IOResponse DiskDevice::handle(const IORequest& request)
                         uriStr.c_str(),
                         static_cast<void*>(fs),
                         resolvedPath.c_str());
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, fs ? DiskError::InvalidRequest : DiskError::NoSuchFileSystem);
             }
 
             if ((flags & 0x02) != 0) {
@@ -382,7 +397,7 @@ IOResponse DiskDevice::handle(const IORequest& request)
                     static_cast<unsigned>(slot1),
                     disk_error_name(dr.error),
                     static_cast<unsigned>(dr.error));
-            IOResponse resp = make_base_response(request, map_disk_error(dr.error));
+            IOResponse resp = disk_response(request, dr.error);
             if (resp.status != StatusCode::Ok) return resp;
 
             const auto info = _svc.info(idx);
@@ -412,15 +427,15 @@ IOResponse DiskDevice::handle(const IORequest& request)
 
         case DiskCommand::Unmount: {
             std::uint8_t slot1 = 0;
-            if (!r.read_u8(slot1)) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!r.read_u8(slot1)) return disk_response(request, DiskError::InvalidRequest);
 
             std::size_t idx = 0;
             if (!parse_slot_1based(slot1, idx) || idx >= _svc.slot_count()) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidSlot);
             }
 
             DiskResult dr = _svc.unmount(idx);
-            IOResponse resp = make_base_response(request, map_disk_error(dr.error));
+            IOResponse resp = disk_response(request, dr.error);
             if (resp.status != StatusCode::Ok) return resp;
             clear_runtime_mount(idx);
 
@@ -437,30 +452,30 @@ IOResponse DiskDevice::handle(const IORequest& request)
             std::uint8_t slot1 = 0;
             std::uint32_t lba = 0;
             std::uint16_t maxBytes = 0;
-            if (!r.read_u8(slot1)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u32le(lba)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u16le(maxBytes)) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!r.read_u8(slot1)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u32le(lba)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u16le(maxBytes)) return disk_response(request, DiskError::InvalidRequest);
 
             std::size_t idx = 0;
             if (!parse_slot_1based(slot1, idx) || idx >= _svc.slot_count()) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidSlot);
             }
 
             DiskResult mountResult = _svc.ensure_mounted(idx);
-            if (!mountResult.ok()) return make_base_response(request, map_disk_error(mountResult.error));
+            if (!mountResult.ok()) return disk_response(request, mountResult.error);
 
             const auto info = _svc.info(idx);
-            if (!info.inserted) return make_base_response(request, StatusCode::NotReady);
-            if (info.geometry.sectorSize == 0) return make_base_response(request, StatusCode::InternalError);
+            if (!info.inserted) return disk_response(request, DiskError::NotMounted);
+            if (info.geometry.sectorSize == 0) return disk_response(request, DiskError::InternalError);
 
             const std::size_t maxSector = info.geometry.sectorSize;
             std::vector<std::uint8_t> buf(maxSector);
             DiskResult dr = _svc.read_sector(idx, lba, buf.data(), buf.size());
-            IOResponse resp = make_base_response(request, map_disk_error(dr.error));
+            IOResponse resp = disk_response(request, dr.error);
             if (resp.status != StatusCode::Ok) return resp;
 
             if (dr.bytes == 0) {
-                return make_base_response(request, StatusCode::InternalError);
+                return disk_response(request, DiskError::InternalError);
             }
 
             std::uint16_t dataLen = dr.bytes;
@@ -490,34 +505,34 @@ IOResponse DiskDevice::handle(const IORequest& request)
             std::uint16_t dataLen = 0;
             const std::uint8_t* bytes = nullptr;
 
-            if (!r.read_u8(slot1)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u32le(lba)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u16le(dataLen)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_bytes(bytes, dataLen)) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!r.read_u8(slot1)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u32le(lba)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u16le(dataLen)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_bytes(bytes, dataLen)) return disk_response(request, DiskError::InvalidRequest);
 
             std::size_t idx = 0;
             if (!parse_slot_1based(slot1, idx) || idx >= _svc.slot_count()) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidSlot);
             }
 
             DiskResult mountResult = _svc.ensure_mounted(idx);
-            if (!mountResult.ok()) return make_base_response(request, map_disk_error(mountResult.error));
+            if (!mountResult.ok()) return disk_response(request, mountResult.error);
 
             const auto info = _svc.info(idx);
-            if (!info.inserted) return make_base_response(request, StatusCode::NotReady);
-            if (info.readOnly) return make_base_response(request, StatusCode::InvalidRequest);
-            if (info.geometry.sectorSize == 0) return make_base_response(request, StatusCode::InternalError);
-            if (dataLen == 0) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!info.inserted) return disk_response(request, DiskError::NotMounted);
+            if (info.readOnly) return disk_response(request, DiskError::ReadOnly);
+            if (info.geometry.sectorSize == 0) return disk_response(request, DiskError::InternalError);
+            if (dataLen == 0) return disk_response(request, DiskError::InvalidRequest);
             if (!info.geometry.supportsVariableSectorSize && dataLen < info.geometry.sectorSize) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidRequest);
             }
             if (dataLen > info.geometry.sectorSize) {
                 // Caller provided more than max sector; reject (keeps behavior predictable).
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidRequest);
             }
 
             DiskResult dr = _svc.write_sector(idx, lba, bytes, dataLen);
-            IOResponse resp = make_base_response(request, map_disk_error(dr.error));
+            IOResponse resp = disk_response(request, dr.error);
             if (resp.status != StatusCode::Ok) return resp;
 
             std::vector<std::uint8_t> out;
@@ -537,34 +552,34 @@ IOResponse DiskDevice::handle(const IORequest& request)
             std::uint32_t lba = 0;
             std::uint16_t count = 0;
             std::uint16_t maxBytes = 0;
-            if (!r.read_u8(slot1)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u32le(lba)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u16le(count)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u16le(maxBytes)) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!r.read_u8(slot1)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u32le(lba)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u16le(count)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u16le(maxBytes)) return disk_response(request, DiskError::InvalidRequest);
 
             std::size_t idx = 0;
             if (!parse_slot_1based(slot1, idx) || idx >= _svc.slot_count()) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidSlot);
             }
 
             DiskResult mountResult = _svc.ensure_mounted(idx);
-            if (!mountResult.ok()) return make_base_response(request, map_disk_error(mountResult.error));
+            if (!mountResult.ok()) return disk_response(request, mountResult.error);
 
             const auto info = _svc.info(idx);
-            if (!info.inserted) return make_base_response(request, StatusCode::NotReady);
-            if (info.geometry.sectorSize == 0) return make_base_response(request, StatusCode::InternalError);
-            if (count == 0) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!info.inserted) return disk_response(request, DiskError::NotMounted);
+            if (info.geometry.sectorSize == 0) return disk_response(request, DiskError::InternalError);
+            if (count == 0) return disk_response(request, DiskError::InvalidRequest);
 
             const std::size_t totalBytes = static_cast<std::size_t>(count) * info.geometry.sectorSize;
             if (totalBytes == 0 || totalBytes > 0xFFFFu) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidRequest);
             }
 
             std::vector<std::uint8_t> buf(totalBytes);
             DiskResult dr = _svc.read_sectors(idx, lba, count, buf.data(), buf.size());
-            IOResponse resp = make_base_response(request, map_disk_error(dr.error));
+            IOResponse resp = disk_response(request, dr.error);
             if (resp.status != StatusCode::Ok) return resp;
-            if (dr.bytes == 0) return make_base_response(request, StatusCode::InternalError);
+            if (dr.bytes == 0) return disk_response(request, DiskError::InternalError);
 
             std::uint16_t dataLen = dr.bytes;
             std::uint8_t flags = 0;
@@ -595,33 +610,33 @@ IOResponse DiskDevice::handle(const IORequest& request)
             std::uint16_t dataLen = 0;
             const std::uint8_t* bytes = nullptr;
 
-            if (!r.read_u8(slot1)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u32le(lba)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u16le(count)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u16le(dataLen)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_bytes(bytes, dataLen)) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!r.read_u8(slot1)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u32le(lba)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u16le(count)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u16le(dataLen)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_bytes(bytes, dataLen)) return disk_response(request, DiskError::InvalidRequest);
 
             std::size_t idx = 0;
             if (!parse_slot_1based(slot1, idx) || idx >= _svc.slot_count()) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidSlot);
             }
 
             DiskResult mountResult = _svc.ensure_mounted(idx);
-            if (!mountResult.ok()) return make_base_response(request, map_disk_error(mountResult.error));
+            if (!mountResult.ok()) return disk_response(request, mountResult.error);
 
             const auto info = _svc.info(idx);
-            if (!info.inserted) return make_base_response(request, StatusCode::NotReady);
-            if (info.readOnly) return make_base_response(request, StatusCode::InvalidRequest);
-            if (info.geometry.sectorSize == 0) return make_base_response(request, StatusCode::InternalError);
-            if (count == 0) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!info.inserted) return disk_response(request, DiskError::NotMounted);
+            if (info.readOnly) return disk_response(request, DiskError::ReadOnly);
+            if (info.geometry.sectorSize == 0) return disk_response(request, DiskError::InternalError);
+            if (count == 0) return disk_response(request, DiskError::InvalidRequest);
 
             const std::size_t totalBytes = static_cast<std::size_t>(count) * info.geometry.sectorSize;
             if (totalBytes == 0 || totalBytes > 0xFFFFu || dataLen < totalBytes) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidRequest);
             }
 
             DiskResult dr = _svc.write_sectors(idx, lba, count, bytes, dataLen);
-            IOResponse resp = make_base_response(request, map_disk_error(dr.error));
+            IOResponse resp = disk_response(request, dr.error);
             if (resp.status != StatusCode::Ok) return resp;
 
             std::vector<std::uint8_t> out;
@@ -639,16 +654,16 @@ IOResponse DiskDevice::handle(const IORequest& request)
 
         case DiskCommand::Info: {
             std::uint8_t slot1 = 0;
-            if (!r.read_u8(slot1)) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!r.read_u8(slot1)) return disk_response(request, DiskError::InvalidRequest);
 
             std::size_t idx = 0;
             if (!parse_slot_1based(slot1, idx) || idx >= _svc.slot_count()) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidSlot);
             }
 
             if (_svc.get_pending_mount(idx).has_value()) {
                 DiskResult mountResult = _svc.ensure_mounted(idx);
-                if (!mountResult.ok()) return make_base_response(request, map_disk_error(mountResult.error));
+                if (!mountResult.ok()) return disk_response(request, mountResult.error);
             }
 
             const auto info = _svc.info(idx);
@@ -680,11 +695,11 @@ IOResponse DiskDevice::handle(const IORequest& request)
 
         case DiskCommand::ClearChanged: {
             std::uint8_t slot1 = 0;
-            if (!r.read_u8(slot1)) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!r.read_u8(slot1)) return disk_response(request, DiskError::InvalidRequest);
 
             std::size_t idx = 0;
             if (!parse_slot_1based(slot1, idx) || idx >= _svc.slot_count()) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidSlot);
             }
 
             _svc.clear_changed(idx);
@@ -702,12 +717,12 @@ IOResponse DiskDevice::handle(const IORequest& request)
         case DiskCommand::Flush: {
             std::uint8_t slot1 = 0;
             if (!r.read_u8(slot1) || r.remaining() != 0)
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidRequest);
             std::size_t idx = 0;
             if (!parse_slot_1based(slot1, idx) || idx >= _svc.slot_count())
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidSlot);
             DiskResult dr = _svc.flush(idx);
-            IOResponse resp = make_base_response(request, map_disk_error(dr.error));
+            IOResponse resp = disk_response(request, dr.error);
             if (resp.status != StatusCode::Ok) return resp;
             resp.payload = {DISKPROTO_VERSION, 0, 0, 0, slot1};
             return resp;
@@ -715,24 +730,24 @@ IOResponse DiskDevice::handle(const IORequest& request)
 
         case DiskCommand::RestoreBoot: {
             std::uint8_t slot1 = 0;
-            if (!r.read_u8(slot1)) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!r.read_u8(slot1)) return disk_response(request, DiskError::InvalidRequest);
 
             std::size_t idx = 0;
             if (!parse_slot_1based(slot1, idx) || idx >= _svc.slot_count()) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidSlot);
             }
             if (_bootConfigUri.empty()) {
-                return make_base_response(request, StatusCode::NotReady);
+                return disk_response(request, DiskError::NotMounted);
             }
 
             std::string uriStr(_bootConfigUri);
             HostState hostState(_storage);
             if (!hostState.resolve_target(uriStr, uriStr, nullptr)) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidRequest);
             }
             auto [fs, resolvedPath] = _storage.resolveUri(uriStr);
             if (!fs || resolvedPath.empty()) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, fs ? DiskError::InvalidRequest : DiskError::NoSuchFileSystem);
             }
 
             MountOptions opts{};
@@ -747,7 +762,7 @@ IOResponse DiskDevice::handle(const IORequest& request)
                     opts.readOnlyRequested ? 1 : 0);
 
             DiskResult dr = _svc.mount(idx, fs->name(), resolvedPath, opts);
-            IOResponse resp = make_base_response(request, map_disk_error(dr.error));
+            IOResponse resp = disk_response(request, dr.error);
             if (resp.status != StatusCode::Ok) return resp;
 
             const auto info = _svc.info(idx);
@@ -775,11 +790,11 @@ IOResponse DiskDevice::handle(const IORequest& request)
 
         case DiskCommand::BeginHostSession: {
             std::uint8_t slot1 = 0;
-            if (!r.read_u8(slot1)) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!r.read_u8(slot1)) return disk_response(request, DiskError::InvalidRequest);
 
             std::size_t idx = 0;
             if (!parse_slot_1based(slot1, idx) || idx >= _svc.slot_count()) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidSlot);
             }
 
             clear_runtime_mounts();
@@ -801,11 +816,11 @@ IOResponse DiskDevice::handle(const IORequest& request)
             std::string uriStr(_bootConfigUri);
             HostState hostState(_storage);
             if (!hostState.resolve_target(uriStr, uriStr, nullptr)) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidRequest);
             }
             auto [fs, resolvedPath] = _storage.resolveUri(uriStr);
             if (!fs || resolvedPath.empty()) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, fs ? DiskError::InvalidRequest : DiskError::NoSuchFileSystem);
             }
 
             MountOptions opts{};
@@ -817,7 +832,7 @@ IOResponse DiskDevice::handle(const IORequest& request)
                     uriStr.c_str());
 
             DiskResult dr = _svc.mount(idx, fs->name(), resolvedPath, opts);
-            IOResponse resp = make_base_response(request, map_disk_error(dr.error));
+            IOResponse resp = disk_response(request, dr.error);
             if (resp.status != StatusCode::Ok) return resp;
 
             const auto info = _svc.info(idx);
@@ -851,7 +866,7 @@ IOResponse DiskDevice::handle(const IORequest& request)
                 r.remaining() != 0 ||
                 (flags & 0x01U) == 0 ||
                 maxPayloadBytes == 0) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidRequest);
             }
 
             struct ActiveMount {
@@ -863,7 +878,7 @@ IOResponse DiskDevice::handle(const IORequest& request)
             active.reserve(_runtimeMounts.size());
             const bool allSlots = firstSlot == 0 && lastSlot == 0;
             if (!allSlots && (firstSlot > lastSlot || lastSlot >= _runtimeMounts.size())) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidSlot);
             }
             for (std::size_t i = 0; i < _runtimeMounts.size(); ++i) {
                 if (!allSlots && (i < firstSlot || i > lastSlot)) continue;
@@ -897,7 +912,7 @@ IOResponse DiskDevice::handle(const IORequest& request)
                 const std::string line = format_runtime_mount_line(
                     active[i].slotIndex, active[i].uri, active[i].mode);
                 if (line.size() > maxPayloadBytes) {
-                    return make_base_response(request, StatusCode::InvalidRequest);
+                    return disk_response(request, DiskError::InvalidRequest);
                 }
                 if (data.size() + line.size() > maxPayloadBytes) break;
                 data.insert(data.end(), line.begin(), line.end());
@@ -930,11 +945,11 @@ IOResponse DiskDevice::handle(const IORequest& request)
             std::uint32_t sectorCount = 0;
             std::string_view uri;
 
-            if (!r.read_u8(flags)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u8(typeRaw)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u16le(sectorSize)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u32le(sectorCount)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_lp_u16_string(uri)) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!r.read_u8(flags)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u8(typeRaw)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u16le(sectorSize)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u32le(sectorCount)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_lp_u16_string(uri)) return disk_response(request, DiskError::InvalidRequest);
 
             const bool overwrite = (flags & 0x01) != 0;
             const auto type = static_cast<ImageType>(typeRaw);
@@ -942,16 +957,16 @@ IOResponse DiskDevice::handle(const IORequest& request)
             std::string uriStr(uri);
             HostState hostState(_storage);
             if (!hostState.resolve_target(uriStr, uriStr, nullptr)) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidRequest);
             }
             auto [fs, resolvedPath] = _storage.resolveUri(uriStr);
             
             if (!fs || resolvedPath.empty()) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, fs ? DiskError::InvalidRequest : DiskError::NoSuchFileSystem);
             }
 
             DiskResult dr = _svc.create_image(std::string(fs->name()), std::string(resolvedPath), type, sectorSize, sectorCount, overwrite);
-            IOResponse resp = make_base_response(request, map_disk_error(dr.error));
+            IOResponse resp = disk_response(request, dr.error);
             if (resp.status != StatusCode::Ok) return resp;
 
             std::vector<std::uint8_t> out;
@@ -970,20 +985,20 @@ IOResponse DiskDevice::handle(const IORequest& request)
             std::uint8_t slot1 = 0;
             std::uint16_t sectorSize = 0;
             std::uint32_t sectorCount = 0;
-            if (!r.read_u8(slot1)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u16le(sectorSize)) return make_base_response(request, StatusCode::InvalidRequest);
-            if (!r.read_u32le(sectorCount)) return make_base_response(request, StatusCode::InvalidRequest);
+            if (!r.read_u8(slot1)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u16le(sectorSize)) return disk_response(request, DiskError::InvalidRequest);
+            if (!r.read_u32le(sectorCount)) return disk_response(request, DiskError::InvalidRequest);
 
             std::size_t idx = 0;
             if (!parse_slot_1based(slot1, idx) || idx >= _svc.slot_count()) {
-                return make_base_response(request, StatusCode::InvalidRequest);
+                return disk_response(request, DiskError::InvalidSlot);
             }
 
             DiskResult mountResult = _svc.ensure_mounted(idx);
-            if (!mountResult.ok()) return make_base_response(request, map_disk_error(mountResult.error));
+            if (!mountResult.ok()) return disk_response(request, mountResult.error);
 
             DiskResult dr = _svc.reinitialize(idx, sectorSize, sectorCount);
-            IOResponse resp = make_base_response(request, map_disk_error(dr.error));
+            IOResponse resp = disk_response(request, dr.error);
             if (resp.status != StatusCode::Ok) return resp;
 
             const auto info = _svc.info(idx);
