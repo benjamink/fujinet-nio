@@ -39,6 +39,7 @@ TYPE_ATR = 1
 TYPE_SSD = 2
 TYPE_DSD = 3
 TYPE_RAW = 4
+TYPE_DC42 = 5
 
 
 def _lp_u16(s: str) -> bytes:

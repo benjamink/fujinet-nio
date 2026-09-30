@@ -114,6 +114,15 @@ v1 includes (image-format understanding required for sector I/O):
     - 80 track: 800 sectors = 204,800 bytes
   - v1 scope: **geometry + sector read/write only** (no DFS catalog parsing)
 
+- **DiskCopy 4.2** (`ImageType::DiskCopy42`, any extension): Apple DiskCopy 4.2
+  image of a Mac floppy (400K/800K GCR, 720K/1440K MFM)
+  - 84-byte big-endian header, then 512-byte sectors, then optional 12-byte
+    per-sector tags; recognised by header content, not extension
+  - tags are ignored and never written
+  - flushing after writes recomputes the header's data checksum so tools that
+    verify it (such as DiskCopy) still accept the image
+  - no blank-image creator: `Create` with this type returns `Unsupported`
+
 Planned image formats:
 
 - DSD (`.dsd`)
@@ -123,6 +132,8 @@ Detection is centralized in `ProbeRegistry`, not in individual mount callers.
 The default probe order is:
 
 - ATR header probe: content match for ATR magic/header.
+- DiskCopy 4.2 probe: content match for the DiskCopy 4.2 header (magic, disk
+  format, tag size) whose declared data fits in the file, whatever the extension.
 - FAT BPB probe: content match for FAT superfloppy images, returning `ImageType::Raw` plus geometry.
 - SSD DFS probe: `.ssd` path plus DFS catalogue sector-count validation.
 - Extension/hint fallback: case-insensitive extension and `sector_size_hint` handling for ambiguous raw images.
@@ -338,7 +349,7 @@ Mount an image into a slot using a **full URI**. The fujinet-nio parses the URI 
 u8  version
 u8  slot
 u8  flags            // bit0 = readonly_requested; bit1 = stage as a lazy pending mount
-u8  typeOverride     // 0=Auto, 1=ATR, 2=SSD, 3=DSD, 4=Raw
+u8  typeOverride     // 0=Auto, 1=ATR, 2=SSD, 3=DSD, 4=Raw, 5=DiskCopy42
 u16 sectorSizeHint   // for Raw; otherwise 0
 u16 uriLen           // LE
 u8[] uri             // length uriLen - e.g., "tnfs://192.168.1.101:16384/disk.atr" or "sd0:/games.atr"
@@ -700,7 +711,7 @@ Create a new image file on a named filesystem using a **full URI**. This command
 ```
 u8  version
 u8  flags            // bit0 = overwrite
-u8  type             // 1=ATR, 2=SSD, 3=DSD, 4=Raw (0=Auto invalid)
+u8  type             // 1=ATR, 2=SSD, 3=DSD, 4=Raw (0=Auto invalid; 5=DiskCopy42 has no creator)
 u16 sectorSize       // LE
 u32 sectorCount      // LE
 u16 uriLen           // LE
