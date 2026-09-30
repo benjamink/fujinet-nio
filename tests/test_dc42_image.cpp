@@ -1,0 +1,105 @@
+#include "doctest.h"
+
+#include "fake_fs.h"
+
+#include "fujinet/disk/dc42_image.h"
+#include "fujinet/disk/image_probers/image_probe.h"
+
+#include <cstdint>
+#include <memory>
+#include <vector>
+
+using namespace fujinet::disk;
+using fujinet::tests::MemoryFile;
+
+namespace {
+
+constexpr std::size_t kHeader = 0x54;
+
+void put_be32(std::vector<std::uint8_t>& v, std::size_t at, std::uint32_t x)
+{
+    v[at] = x >> 24;
+    v[at + 1] = x >> 16;
+    v[at + 2] = x >> 8;
+    v[at + 3] = x;
+}
+
+std::vector<std::uint8_t> make_dc42(std::uint32_t sectors, std::uint32_t tagBytes = 0)
+{
+    std::vector<std::uint8_t> v(kHeader + sectors * 512 + tagBytes);
+    const char name[] = "Test Disk";
+    v[0] = sizeof(name) - 1;
+    for (std::size_t i = 0; i + 1 < sizeof(name); ++i) v[1 + i] = name[i];
+    put_be32(v, 0x40, sectors * 512);
+    put_be32(v, 0x44, tagBytes);
+    v[0x50] = 1;    // 800K
+    v[0x51] = 0x22; // Mac format
+    v[0x52] = 0x01;
+    v[0x53] = 0x00;
+    for (std::uint32_t s = 0; s < sectors; ++s) v[kHeader + s * 512] = static_cast<std::uint8_t>(s);
+    return v;
+}
+
+} // namespace
+
+TEST_CASE("DiskCopy 4.2 images are found by their header, whatever the extension")
+{
+    auto bytes = make_dc42(1600, 1600 * 12);
+    for (const char* path : {"/disk.image", "/disk.img", "/disk.dsk"}) {
+        MemoryFile file(bytes, true, nullptr, nullptr);
+        const auto r = probe_image(file, bytes.size(), path, MountOptions{});
+        CHECK(r.type == ImageType::DiskCopy42);
+        CHECK(r.geometry.sectorSize == 512);
+        CHECK(r.geometry.sectorCount == 1600);
+    }
+}
+
+TEST_CASE("DiskCopy 4.2 header checks")
+{
+    Dc42Header h;
+    auto good = make_dc42(800);
+    CHECK(parse_dc42_header(good.data(), good.size(), h));
+    CHECK(h.dataBytes == 800 * 512);
+
+    auto badMagic = good;
+    badMagic[0x52] = 0;
+    CHECK(!parse_dc42_header(badMagic.data(), badMagic.size(), h));
+
+    CHECK(!parse_dc42_header(good.data(), good.size() - 1, h)); // data runs past the file
+
+    auto badName = good;
+    badName[0] = 64;
+    CHECK(!parse_dc42_header(badName.data(), badName.size(), h));
+}
+
+TEST_CASE("DiskCopy 4.2 sectors are read and written past the header")
+{
+    auto bytes = make_dc42(800);
+    auto image = make_dc42_disk_image();
+    MountOptions opts{};
+    opts.readOnlyRequested = false;
+    REQUIRE(image->mount(std::make_unique<MemoryFile>(bytes, false, nullptr, nullptr), bytes.size(), opts).ok());
+    CHECK(image->geometry().sectorCount == 800);
+
+    std::uint8_t sector[512]{};
+    REQUIRE(image->read_sector(5, sector, sizeof(sector)).ok());
+    CHECK(sector[0] == 5);
+
+    std::vector<std::uint8_t> ones(512, 0x11);
+    REQUIRE(image->write_sector(7, ones.data(), ones.size()).ok());
+    CHECK(bytes[kHeader + 7 * 512] == 0x11);
+    CHECK(bytes[kHeader + 8 * 512] == 8);
+
+    CHECK(image->read_sector(800, sector, sizeof(sector)).error == DiskError::OutOfRange);
+}
+
+TEST_CASE("A read-only DiskCopy 4.2 mount refuses writes")
+{
+    auto bytes = make_dc42(800);
+    auto image = make_dc42_disk_image();
+    MountOptions opts{};
+    opts.readOnlyRequested = true;
+    REQUIRE(image->mount(std::make_unique<MemoryFile>(bytes, true, nullptr, nullptr), bytes.size(), opts).ok());
+    std::vector<std::uint8_t> ones(512, 0x11);
+    CHECK(image->write_sector(0, ones.data(), ones.size()).error == DiskError::ReadOnly);
+}

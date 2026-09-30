@@ -1,6 +1,7 @@
 #include "fujinet/disk/image_registry.h"
 
 #include "fujinet/disk/atr_image.h"
+#include "fujinet/disk/dc42_image.h"
 #include "fujinet/disk/raw_image.h"
 #include "fujinet/disk/ssd_image.h"
 
@@ -106,6 +107,7 @@ ImageRegistry make_default_image_registry()
     reg.register_type(ImageType::Raw, [] { return make_raw_disk_image(); });
     reg.register_type(ImageType::Atr, [] { return make_atr_disk_image(); });
     reg.register_type(ImageType::Ssd, [] { return make_ssd_disk_image(); });
+    reg.register_type(ImageType::DiskCopy42, [] { return make_dc42_disk_image(); });
     reg.register_type(ImageType::Dsd, [] { return std::make_unique<UnsupportedImage>(ImageType::Dsd); });
 
     // Creators (blank image creation).
