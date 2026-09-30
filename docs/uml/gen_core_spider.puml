@@ -92,9 +92,12 @@ __
 }
 class "disk::SsdDiskImage" as C_0006605079759133086700
 class C_0006605079759133086700 {
++SsdDiskImage(ImageType type, std::uint32_t sides) : void
+..
 +flush() : DiskResult
 +geometry() const noexcept : DiskGeometry
 +mount(std::unique_ptr<fs::IFile> file, std::uint64_t sizeBytes, const MountOptions & opts) : DiskResult
+-offset_of(std::uint32_t lba) const noexcept : std::uint64_t
 +read_only() const noexcept : bool
 +read_sector(std::uint32_t lba, std::uint8_t * dst, std::size_t dstBytes) : DiskResult
 +type() const noexcept : ImageType
@@ -105,6 +108,9 @@ __
 -_fileSizeBytes : std::uint64_t
 -_geo : DiskGeometry
 -_readOnly : bool
+-_sectorsPerSide : std::uint32_t
+-_sides : std::uint32_t
+-_type : ImageType
 }
 class "disk::Dc42DiskImage" as C_0013203121269057240614
 class C_0013203121269057240614 {
@@ -139,21 +145,6 @@ __
 -_createValidators : std::unordered_map<std::uint8_t,CreateValidator>
 -_creators : std::unordered_map<std::uint8_t,Creator>
 -_factories : std::unordered_map<std::uint8_t,Factory>
-}
-class "disk::UnsupportedImage" as C_0007238535882053790625
-class C_0007238535882053790625 {
-+UnsupportedImage(ImageType t) : void
-..
-+flush() : DiskResult
-+geometry() const noexcept : DiskGeometry
-+mount(std::unique_ptr<fs::IFile>, std::uint64_t, const MountOptions &) : DiskResult
-+read_only() const noexcept : bool
-+read_sector(std::uint32_t, std::uint8_t *, std::size_t) : DiskResult
-+type() const noexcept : ImageType
-+unmount() : DiskResult
-+write_sector(std::uint32_t, const std::uint8_t *, std::size_t) : DiskResult
-__
--_t : ImageType
 }
 class "disk::AtrDiskImage" as C_0001512185162454708002
 class C_0001512185162454708002 {
@@ -320,6 +311,11 @@ __
 }
 class "disk::DiskCopy42Probe" as C_0017082979857162707783
 class C_0017082979857162707783 {
++probe(fs::IFile & file, std::uint64_t sizeBytes, std::string_view, const MountOptions &) const : ImageProbeResult
+__
+}
+class "disk::AdfsOldMapProbe" as C_0005291034059368021007
+class C_0005291034059368021007 {
 +probe(fs::IFile & file, std::uint64_t sizeBytes, std::string_view, const MountOptions &) const : ImageProbeResult
 __
 }
@@ -1680,9 +1676,9 @@ C_0009299638825477999089 ..> C_0014904826619290153445
 C_0009299638825477999089 ..> C_0017121056686289896594
 C_0009299638825477999089 ..> C_0011001454402567554105
 C_0009299638825477999089 ..> C_0000905559446768315059
-C_0006605079759133086700 ..> C_0018082651107742917098
 C_0006605079759133086700 ..> C_0017121056686289896594
 C_0006605079759133086700 ..> C_0011001454402567554105
+C_0006605079759133086700 o-- C_0018082651107742917098 : -_type
 C_0006605079759133086700 o-- C_0014904826619290153445 : -_file
 C_0006605079759133086700 o-- C_0008566044437912091269 : -_geo
 C_0009299638825477999089 <|-- C_0006605079759133086700
@@ -1700,12 +1696,6 @@ C_0008422084792172174393 ..> C_0009299638825477999089 : -_factories
 C_0008422084792172174393 ..> C_0011001454402567554105 : -_creators
 C_0008422084792172174393 --> C_0014904826619290153445 : -_creators
 C_0008422084792172174393 ..> C_0011001454402567554105 : -_createValidators
-C_0007238535882053790625 ..> C_0008566044437912091269
-C_0007238535882053790625 ..> C_0014904826619290153445
-C_0007238535882053790625 ..> C_0017121056686289896594
-C_0007238535882053790625 ..> C_0011001454402567554105
-C_0007238535882053790625 o-- C_0018082651107742917098 : -_t
-C_0009299638825477999089 <|-- C_0007238535882053790625
 C_0001512185162454708002 ..> C_0018082651107742917098
 C_0001512185162454708002 ..> C_0017121056686289896594
 C_0001512185162454708002 ..> C_0011001454402567554105
@@ -1765,6 +1755,10 @@ C_0017082979857162707783 ..> C_0014904826619290153445
 C_0017082979857162707783 ..> C_0017121056686289896594
 C_0017082979857162707783 ..> C_0015385627141732155341
 C_0005653965888165700902 <|-- C_0017082979857162707783
+C_0005291034059368021007 ..> C_0014904826619290153445
+C_0005291034059368021007 ..> C_0017121056686289896594
+C_0005291034059368021007 ..> C_0015385627141732155341
+C_0005653965888165700902 <|-- C_0005291034059368021007
 C_0018260908211426513164 ..> C_0014904826619290153445
 C_0018260908211426513164 ..> C_0017121056686289896594
 C_0018260908211426513164 ..> C_0015385627141732155341
