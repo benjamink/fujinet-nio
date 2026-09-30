@@ -68,13 +68,15 @@ private:
 
 class MemoryFileSystem final : public fujinet::fs::IFileSystem {
 public:
-    explicit MemoryFileSystem(std::string name)
+    explicit MemoryFileSystem(std::string name,
+                              fujinet::fs::FileSystemKind kind = fujinet::fs::FileSystemKind::HostPosix)
         : _name(std::move(name))
+        , _kind(kind)
     {
         _dirs.push_back("/"); // root
     }
 
-    fujinet::fs::FileSystemKind kind() const override { return fujinet::fs::FileSystemKind::HostPosix; }
+    fujinet::fs::FileSystemKind kind() const override { return _kind; }
     std::string name() const override { return _name; }
 
     bool exists(const std::string& path) override
@@ -258,6 +260,7 @@ private:
     }
 
     std::string _name;
+    fujinet::fs::FileSystemKind _kind;
     std::unordered_map<std::string, std::vector<std::uint8_t>> _files;
     std::vector<std::string> _dirs;
     std::size_t _flushCount{0};

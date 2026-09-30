@@ -89,7 +89,11 @@ The `StorageManager::resolveUri()` function handles scheme parsing and authority
 When `boot.mode` is `config`, bootstrap policy installs `boot.config_uri` as a
 pending mount on the active runtime disk unit, currently slot index `0`
 (`D1`/`D:` depending on host convention). User-initiated mounts can replace it
-later.
+later. On a local filesystem the image must exist or no mount is installed.
+On a network filesystem (`FileSystemKind` for which `fs::is_network_kind()`
+is true) the image is not probed, because bootstrap runs before the network
+link is up; the lazy mount opens it on first access and retries while it is
+still unreachable.
 
 ---
 

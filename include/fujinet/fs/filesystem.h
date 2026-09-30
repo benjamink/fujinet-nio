@@ -24,6 +24,25 @@ enum class FileSystemKind {
     Unknown,
 };
 
+// True for filesystems reached over the network. They may be unreachable until
+// the platform link is up, so a failed probe does not prove a path is missing.
+constexpr bool is_network_kind(FileSystemKind kind)
+{
+    switch (kind) {
+    case FileSystemKind::NetworkTnfs:
+    case FileSystemKind::NetworkSmb:
+    case FileSystemKind::NetworkFtp:
+    case FileSystemKind::NetworkHttp:
+        return true;
+    case FileSystemKind::LocalFlash:
+    case FileSystemKind::LocalSD:
+    case FileSystemKind::HostPosix:
+    case FileSystemKind::Unknown:
+        return false;
+    }
+    return false;
+}
+
 struct FileInfo {
     std::string path;   // Path relative to the root of this filesystem ("/", "/foo/bar.atr")
     bool        isDirectory{false};
