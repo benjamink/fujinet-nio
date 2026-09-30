@@ -46,6 +46,12 @@ static bool is_adf_extension(std::string_view ext) noexcept
     return ext == "adf";
 }
 
+// Macintosh hard disk volumes (HD20, SCSI): flat 512-byte blocks.
+static bool is_mac_volume_extension(std::string_view ext) noexcept
+{
+    return ext == "hda" || ext == "hfv" || ext == "dsk";
+}
+
 class AtrHeaderProbe final : public IImageProbe {
 public:
     ImageProbeResult probe(
@@ -136,6 +142,12 @@ public:
             DiskGeometry geometry{};
             geometry.sectorSize = 512;
             geometry.sectorCount = static_cast<std::uint32_t>(sectorCount);
+            return {true, ImageType::Raw, geometry, ImageProbeConfidence::Extension};
+        }
+        if (is_mac_volume_extension(ext) && sizeBytes != 0 && (sizeBytes % 512) == 0) {
+            DiskGeometry geometry{};
+            geometry.sectorSize = opts.sectorSizeHint ? opts.sectorSizeHint : 512;
+            geometry.sectorCount = static_cast<std::uint32_t>(sizeBytes / geometry.sectorSize);
             return {true, ImageType::Raw, geometry, ImageProbeConfidence::Extension};
         }
         if (is_raw_extension(ext)) {
