@@ -47,10 +47,14 @@ static bool is_adf_extension(std::string_view ext) noexcept
     return ext == "adf";
 }
 
-// Macintosh hard disk volumes (HD20, SCSI): flat 512-byte blocks.
+// Macintosh hard disk volumes (HD20, SCSI): flat 512-byte blocks. Only
+// extensions that mean the same thing on every machine may imply geometry;
+// ".dsk" does not (Apple II, Mac, CPC, MSX, TRS-80), so it is left to content
+// probes and client hints. See "Adding a new image format" in
+// docs/disk_device_protocol.md.
 static bool is_mac_volume_extension(std::string_view ext) noexcept
 {
-    return ext == "hda" || ext == "hfv" || ext == "dsk";
+    return ext == "hda" || ext == "hfv";
 }
 
 class AtrHeaderProbe final : public IImageProbe {

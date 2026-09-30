@@ -111,6 +111,12 @@ v1 includes (image-format understanding required for sector I/O):
     images where geometry cannot be inferred from file content
   - `.adf` is recognized case-insensitively as raw 512-byte media; its geometry
     is `file_size / 512` blocks and non-512-aligned files are rejected
+  - `.hda` and `.hfv` (Macintosh HD20/SCSI hard disk volumes) are recognized
+    case-insensitively as raw 512-byte media, unless the mount supplies a
+    sector size hint; files that are not whole 512-byte blocks are left to
+    the other probes
+  - `.dsk` is deliberately not recognized by extension (see the detection
+    policy below)
 
 - **SSD** (`ImageType::Ssd`, `.ssd`): BBC DFS SSD image (flat 256-byte sectors)
   - supported sizes (validated on mount):
@@ -155,9 +161,36 @@ To add a new disk image type:
 - Register the implementation in the platform/default `ImageRegistry`.
 - Add an `IImageProbe` implementation when the format can be recognized from content, path, hints, or some combination.
 - Register the probe in `make_default_probe_registry()` with stronger content probes before weaker extension/hint fallbacks.
+- Add rows for the new format, and for anything it could be confused with, to
+  `tests/test_image_probe_matrix.cpp`.
 
 Keep filesystem parsing inside the image separate from block I/O unless the
 parsing is required to establish image geometry or sector offsets.
+
+#### Detection policy
+
+One NIO serves many machines, and many image extensions are shared between
+them, so detection must never guess:
+
+1. **Content wins.** A format with a signature (ATR, DiskCopy 4.2, a FAT boot
+   sector, a DFS catalogue) is recognized by its content, whatever the file is
+   called.
+2. **Only unambiguous extensions imply geometry.** An extension may select a
+   type or geometry only if it means the same thing on every machine:
+   `.atr`, `.ssd`, `.dsd`, `.adf`, `.hda`, `.hfv`.
+3. **Ambiguous extensions need content or the client.** `.img`, `.ima` and
+   `.raw` are raw, but get geometry only from content or the client's sector
+   size hint; without either the mount fails rather than guessing. `.dsk`
+   (Apple II, Macintosh, Amstrad CPC, MSX, TRS-80, ...) is not claimed by
+   extension at all: content probes still recognize DiskCopy 4.2 `.dsk`
+   files, and otherwise the client passes the image type and sector size its
+   machine uses (for example 256 for a 140K Apple II disk).
+
+The host client knows which machine it is, so machine-specific media knowledge
+belongs there, carried as the mount's type and sector size hint (persisted
+runtime mounts store the hint), not in DiskService.
+`tests/test_image_probe_matrix.cpp` encodes this policy, one row per known
+variant.
 
 ---
 
