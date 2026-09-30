@@ -394,6 +394,7 @@ __
 -_clientFactory : TnfsClientFactory
 -_defaultEndpoint : TnfsEndpoint
 -_fixedClient : std::shared_ptr<tnfs::ITnfsClient>
+-_openFiles : std::map<const tnfs::ITnfsClient *,std::shared_ptr<TnfsOpenFiles>>
 -_sessions : std::map<SessionKey,Session>
 }
 class "fs::HttpFileSystem" as C_0017926825113595461604
