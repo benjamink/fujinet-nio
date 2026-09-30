@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <utility>
 
 namespace fujinet::disk {
@@ -169,6 +170,46 @@ public:
     }
 };
 
+// Acorn ADFS, old map: the BBC's S, M and L floppies (160K, 320K, 640K) and
+// old-map hard discs. Sectors are 256 bytes in ADFS logical order (an .adl's
+// sides are already interleaved that way), so it is a flat raw image.
+// Recognised by content, whatever the extension: the root directory's "Hugo"
+// start and end markers, and the free-space map's disc size matching the
+// file. The map checksums are not used; real images often carry stale ones.
+class AdfsOldMapProbe final : public IImageProbe {
+public:
+    ImageProbeResult probe(
+        fs::IFile& file,
+        std::uint64_t sizeBytes,
+        std::string_view,
+        const MountOptions&
+    ) const override
+    {
+        static constexpr std::uint64_t DISC_SIZE_OFFSET = 0xFC;   // map sector 0, 24-bit LE
+        static constexpr std::uint64_t ROOT_START_MARKER = 0x201; // root dir at sector 2
+        static constexpr std::uint64_t ROOT_END_MARKER = 0x6FB;   // 5-sector directory
+        if (sizeBytes < ROOT_END_MARKER + 4 || (sizeBytes % 256) != 0) return {};
+
+        std::uint8_t size[3]{};
+        std::uint8_t start[4]{};
+        std::uint8_t end[4]{};
+        if (!file.seek(DISC_SIZE_OFFSET) || file.read(size, sizeof(size)) != sizeof(size)) return {};
+        if (!file.seek(ROOT_START_MARKER) || file.read(start, sizeof(start)) != sizeof(start)) return {};
+        if (!file.seek(ROOT_END_MARKER) || file.read(end, sizeof(end)) != sizeof(end)) return {};
+        if (std::memcmp(start, "Hugo", 4) != 0 || std::memcmp(end, "Hugo", 4) != 0) return {};
+
+        const std::uint32_t sectors = static_cast<std::uint32_t>(size[0]) |
+                                      (static_cast<std::uint32_t>(size[1]) << 8) |
+                                      (static_cast<std::uint32_t>(size[2]) << 16);
+        if (static_cast<std::uint64_t>(sectors) * 256 != sizeBytes) return {};
+
+        DiskGeometry geometry{};
+        geometry.sectorSize = 256;
+        geometry.sectorCount = sectors;
+        return {true, ImageType::Raw, geometry, ImageProbeConfidence::Content};
+    }
+};
+
 class ExtensionProbe final : public IImageProbe {
 public:
     ImageProbeResult probe(
@@ -260,6 +301,7 @@ ProbeRegistry make_default_probe_registry()
     ProbeRegistry registry;
     registry.registerProbe(std::make_unique<AtrHeaderProbe>());
     registry.registerProbe(std::make_unique<DiskCopy42Probe>());
+    registry.registerProbe(std::make_unique<AdfsOldMapProbe>());
     registry.registerProbe(std::make_unique<FatBpbSectorSizeProbe>());
     registry.registerProbe(std::make_unique<SsdDfsProbe>());
     registry.registerProbe(std::make_unique<ExtensionProbe>());

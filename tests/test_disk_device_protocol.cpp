@@ -1529,14 +1529,14 @@ TEST_CASE("DiskService: unsupported creator is rejected before an existing file 
     fujinet::fs::StorageManager sm;
     auto memfs = std::make_unique<fujinet::tests::MemoryFileSystem>("mem");
     auto* memfsPtr = memfs.get();
-    memfs->file_bytes("/keep.dsd") = {1, 2, 3, 4};
+    memfs->file_bytes("/keep.image") = {1, 2, 3, 4};
     REQUIRE(sm.registerFileSystem(std::move(memfs)));
 
     fujinet::disk::DiskService svc(sm, fujinet::disk::make_default_image_registry());
     const auto result = svc.create_image(
-        "mem", "/keep.dsd", fujinet::disk::ImageType::Dsd, 256, 800, true);
+        "mem", "/keep.image", fujinet::disk::ImageType::DiskCopy42, 256, 800, true);
     CHECK(result.error == fujinet::disk::DiskError::UnsupportedImageType);
-    CHECK(memfsPtr->file_bytes("/keep.dsd") == std::vector<std::uint8_t>{1, 2, 3, 4});
+    CHECK(memfsPtr->file_bytes("/keep.image") == std::vector<std::uint8_t>{1, 2, 3, 4});
 }
 
 TEST_CASE("DiskService: invalid creator geometry is rejected before an existing file is truncated")

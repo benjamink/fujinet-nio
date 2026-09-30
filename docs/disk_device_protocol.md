@@ -111,7 +111,9 @@ v1 includes (image-format understanding required for sector I/O):
     mount fails with `GeometryRequired` (see the detection policy)
   - persisted runtime mounts can provide `sector_size_hint` for headerless raw
     images where geometry cannot be inferred from file content
-  - `.adf` is recognized case-insensitively as raw 512-byte media; its geometry
+  - `.adf` is used by both Amiga and Acorn: an Acorn ADFS image is recognized
+    by content first (see ADFS below), and otherwise `.adf` is an Amiga disk,
+    recognized case-insensitively as raw 512-byte media; its geometry
     is `file_size / 512` blocks and non-512-aligned files are rejected
   - `.hda` and `.hfv` (Macintosh HD20/SCSI hard disk volumes) are recognized
     case-insensitively as raw 512-byte media, unless the mount supplies a
@@ -132,6 +134,25 @@ v1 includes (image-format understanding required for sector I/O):
     - 80 track: 800 sectors = 204,800 bytes
   - v1 scope: **geometry + sector read/write only** (no DFS catalog parsing)
 
+- **DSD** (`ImageType::Dsd`, `.dsd`): BBC double-sided DFS image. Each side is
+  an SSD surface (DFS drives 0 and 2 on a BBC), stored track-interleaved:
+  track 0 side 0, track 0 side 1, track 1 side 0, ...
+  - logical sectors run through side 0, then side 1: side 1 starts at
+    `sectorCount / 2` (a client maps drive 2 to that offset)
+  - the side 0 catalogue gives the size: 400 sectors a side (40 tracks) or
+    800 (80 tracks), so `sectorCount` is 800 or 1600
+  - like SSD, images may be truncated: sectors past the end of the file read
+    as zeros and are created on write
+
+- **ADFS**, old map (BBC S, M and L floppies of 160K, 320K and 640K, and
+  old-map hard discs): served as **Raw** 256-byte sectors in ADFS logical
+  order (an `.adl`'s sides are already interleaved that way)
+  - recognized by content, whatever the extension (`.ads`, `.adm`, `.adl`,
+    Acorn `.adf`, `.dat`): the root directory's "Hugo" start and end markers,
+    and the free space map's disc size equal to the file size
+  - the map checksums are deliberately not checked; real images often carry
+    stale ones
+
 - **DiskCopy 4.2** (`ImageType::DiskCopy42`, any extension): Apple DiskCopy 4.2
   image of a Mac floppy (400K/800K GCR, 720K/1440K MFM)
   - 84-byte big-endian header, then 512-byte sectors, then optional 12-byte
@@ -143,7 +164,6 @@ v1 includes (image-format understanding required for sector I/O):
 
 Planned image formats:
 
-- DSD (`.dsd`)
 - HDF/RDB semantics are intentionally not inferred from `.hdf` yet.
 
 Detection is centralized in `ProbeRegistry`, not in individual mount callers.
@@ -152,6 +172,8 @@ The default probe order is:
 - ATR header probe: content match for ATR magic/header.
 - DiskCopy 4.2 probe: content match for the DiskCopy 4.2 header (magic, disk
   format, tag size) whose declared data fits in the file, whatever the extension.
+- ADFS probe: content match for an old-map ADFS disc ("Hugo" directory
+  markers and a free space map size equal to the file), whatever the extension.
 - FAT BPB probe: content match for FAT superfloppy images, returning `ImageType::Raw` plus geometry.
 - SSD DFS probe: `.ssd` path plus DFS catalogue sector-count validation.
 - Extension/hint fallback: case-insensitive extension and `sector_size_hint` handling for ambiguous raw images.
@@ -731,7 +753,7 @@ payload.
 | 4 | `FileNotFound` | `InvalidRequest` | No image at that path | Check the path |
 | 5 | `AlreadyExists` | `InvalidRequest` | `Create` target exists without overwrite | Set overwrite, or choose another name |
 | 6 | `OpenFailed` | `IOError` | The image could not be opened | Check permissions or the network |
-| 7 | `UnsupportedImageType` | `Unsupported` | A recognized type NIO cannot handle (DSD, `Create` without a creator) | Use another format |
+| 7 | `UnsupportedImageType` | `Unsupported` | A recognized type NIO cannot handle (`Create` without a creator, such as DiskCopy 4.2) | Use another format |
 | 8 | `BadImage` | `InvalidRequest` | A recognized format whose content or size is invalid | The image is damaged or mislabelled |
 | 9 | `InvalidGeometry` | `InvalidRequest` | The client's sector size does not fit the image | Pass the sector size this medium uses |
 | 10 | `NotMounted` | `NotReady` | No image in the slot (or no boot disk configured) | Mount first |
@@ -814,6 +836,10 @@ u32 sectorCount
   - `sectorSize` must be 256
   - `sectorCount` must be 400 or 800
   - created file is blank (all zeros / sparse)
+- **DSD**:
+  - `sectorSize` must be 256
+  - `sectorCount` must be 800 or 1600 (40 or 80 tracks a side)
+  - a blank DFS catalogue is written for each side
 - **ATR**:
   - `sectorSize` must be 128, 256, or 512
   - a standard 16-byte ATR header is written

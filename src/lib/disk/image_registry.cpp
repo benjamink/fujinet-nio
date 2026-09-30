@@ -7,36 +7,6 @@
 
 namespace fujinet::disk {
 
-namespace {
-class UnsupportedImage final : public IDiskImage {
-public:
-    explicit UnsupportedImage(ImageType t) : _t(t) {}
-
-    ImageType type() const noexcept override { return _t; }
-    DiskGeometry geometry() const noexcept override { return {}; }
-    bool read_only() const noexcept override { return true; }
-
-    DiskResult mount(std::unique_ptr<fs::IFile>, std::uint64_t, const MountOptions&) override
-    {
-        return DiskResult{DiskError::UnsupportedImageType};
-    }
-    DiskResult unmount() override { return DiskResult{DiskError::None}; }
-    DiskResult read_sector(std::uint32_t, std::uint8_t*, std::size_t) override
-    {
-        return DiskResult{DiskError::UnsupportedImageType};
-    }
-    DiskResult write_sector(std::uint32_t, const std::uint8_t*, std::size_t) override
-    {
-        return DiskResult{DiskError::UnsupportedImageType};
-    }
-    DiskResult flush() override { return DiskResult{DiskError::None}; }
-
-private:
-    ImageType _t{ImageType::Auto};
-};
-
-} // namespace
-
 bool ImageRegistry::register_type(ImageType type, Factory factory)
 {
     if (type == ImageType::Auto || !factory) {
@@ -108,7 +78,7 @@ ImageRegistry make_default_image_registry()
     reg.register_type(ImageType::Atr, [] { return make_atr_disk_image(); });
     reg.register_type(ImageType::Ssd, [] { return make_ssd_disk_image(); });
     reg.register_type(ImageType::DiskCopy42, [] { return make_dc42_disk_image(); });
-    reg.register_type(ImageType::Dsd, [] { return std::make_unique<UnsupportedImage>(ImageType::Dsd); });
+    reg.register_type(ImageType::Dsd, [] { return make_dsd_disk_image(); });
 
     // Creators (blank image creation).
     reg.register_creator(
@@ -123,6 +93,10 @@ ImageRegistry make_default_image_registry()
         ImageType::Ssd,
         [](fs::IFile& f, std::uint16_t ss, std::uint32_t sc) { return create_ssd_image_file(f, ss, sc); },
         validate_ssd_image_geometry);
+    reg.register_creator(
+        ImageType::Dsd,
+        [](fs::IFile& f, std::uint16_t ss, std::uint32_t sc) { return create_dsd_image_file(f, ss, sc); },
+        validate_dsd_image_geometry);
 
     return reg;
 }

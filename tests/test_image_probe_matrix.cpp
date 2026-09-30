@@ -20,7 +20,8 @@
 // Image detection policy (docs/disk_device_protocol.md, "Detection policy"),
 // one row per real-world variant:
 //
-//  1. Content probes win, whatever the extension, and over a client's hint.
+//  1. Content probes win, whatever the extension, and over a client's hint
+//     (ATR, DiskCopy 4.2, old-map ADFS, FAT, DFS catalogues).
 //  2. Only extensions that mean the same thing on every machine may imply
 //     geometry (.atr, .ssd, .dsd, .adf, .hda, .hfv, .xfd). Where the format's
 //     sector size varies (.hda, .hfv, .xfd), a client hint that fits the file
@@ -105,6 +106,32 @@ Bytes ssd_80track()
     return v;
 }
 
+// BBC DFS .dsd: two SSD sides, track-interleaved; each side's catalogue says
+// its size. Side 1's catalogue follows side 0's track 0.
+Bytes dsd(std::uint32_t tracks)
+{
+    Bytes v(tracks * 2 * 10 * 256, 0);
+    const std::uint32_t perSide = tracks * 10;
+    for (std::size_t sector1 : {std::size_t{0x100}, std::size_t{10 * 256 + 0x100}}) {
+        v[sector1 + 6] = static_cast<std::uint8_t>(perSide >> 8);
+        v[sector1 + 7] = static_cast<std::uint8_t>(perSide & 0xFF);
+    }
+    return v;
+}
+
+// Acorn ADFS, old map: disc size in the free space map, root directory
+// "Hugo" start and end markers.
+Bytes adfs(std::uint32_t sectors)
+{
+    Bytes v(static_cast<std::size_t>(sectors) * 256, 0);
+    v[0xFC] = static_cast<std::uint8_t>(sectors);
+    v[0xFD] = static_cast<std::uint8_t>(sectors >> 8);
+    v[0xFE] = static_cast<std::uint8_t>(sectors >> 16);
+    std::memcpy(&v[0x201], "Hugo", 4);
+    std::memcpy(&v[0x6FB], "Hugo", 4);
+    return v;
+}
+
 // Amstrad CPC extended .dsk: its own header, not a flat block image.
 Bytes cpc_extended(std::size_t size)
 {
@@ -135,10 +162,15 @@ std::vector<Row> matrix()
         {"DiskCopy 4.2 800K named .dsk", dc42(1600, 1), "/mac.dsk", 0, true, ImageType::DiskCopy42, 512, 1600, OK},
         {"DiskCopy 4.2 800K named .image", dc42(1600, 1), "/mac.image", 0, true, ImageType::DiskCopy42, 512, 1600, OK},
         {"FAT 1.44M floppy .img", fat_1440k(), "/dos.img", 0, true, ImageType::Raw, 512, 2880, OK},
+        {"Acorn ADFS L .adl", adfs(2560), "/master.adl", 0, true, ImageType::Raw, 256, 2560, OK},
+        {"Acorn ADFS S named .adf", adfs(640), "/acorn.adf", 0, true, ImageType::Raw, 256, 640, OK},
+        {"Acorn ADFS M, client hint 512 (ignored)", adfs(1280), "/games.adm", 512, true, ImageType::Raw, 256, 1280, OK},
 
         // Unambiguous extensions imply geometry.
         {"Amiga DD .adf", zeros(1760 * 512), "/wb.adf", 0, true, ImageType::Raw, 512, 1760, OK},
         {"BBC DFS .ssd", ssd_80track(), "/bbc.ssd", 0, true, ImageType::Ssd, 256, 800, OK},
+        {"BBC DFS 80-track .dsd", dsd(80), "/bbc.dsd", 0, true, ImageType::Dsd, 0, 0, OK},
+        {"BBC DFS 40-track .dsd", dsd(40), "/bbc40.dsd", 0, true, ImageType::Dsd, 0, 0, OK},
         {"Mac HD .hda", zeros(2048 * 512), "/hd20.hda", 0, true, ImageType::Raw, 512, 2048, OK},
         {"Mac HD .HFV (case-insensitive)", zeros(2048 * 512), "/vol.HFV", 0, true, ImageType::Raw, 512, 2048, OK},
         {"Atari SD .xfd", zeros(720 * 128), "/sd.xfd", 0, true, ImageType::Raw, 128, 720, OK},

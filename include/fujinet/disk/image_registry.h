@@ -29,7 +29,8 @@ private:
     std::unordered_map<std::uint8_t, CreateValidator> _createValidators;
 };
 
-// Default registry (pure/core): provides Raw (implemented) and placeholders for Atr/Ssd/Dsd.
+// Default registry (pure/core): Raw, ATR, SSD, DSD and DiskCopy 4.2 images,
+// with creators for Raw, ATR, SSD and DSD.
 ImageRegistry make_default_image_registry();
 
 } // namespace fujinet::disk
