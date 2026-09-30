@@ -110,8 +110,12 @@ TEST_CASE("FujinetCore can be embedded with a custom Channel")
     // For the purposes of this test we don’t really care which machine/
     // channel it claims to be, only that FujiBus transport can be set up.
 
-    // 3) Provide our own Channel implementation.
+    // 3) Provide our own Channel implementation. A byte channel carries
+    //    native packets only through a packet link.
     InMemoryChannel channel;
+    if (profile.primaryTransport == build::TransportKind::FujiBusNative) {
+        profile.primaryTransport = build::TransportKind::FujiBusSlip;
+    }
 
     // 4) Install transports based on the profile.
     io::ITransport* primary = core::setup_transports(core, channel, profile);

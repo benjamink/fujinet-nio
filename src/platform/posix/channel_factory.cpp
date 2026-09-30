@@ -3,6 +3,7 @@
 #include "fujinet/build/profile.h"
 #include "fujinet/config/fuji_config.h"
 #include "fujinet/io/core/channel.h"
+#include "fujinet/io/core/packet_link.h"
 #include "fujinet/platform/posix/atari_netsio_fujibus_channel.h"
 #include "fujinet/platform/posix/pty_channel.h"
 #include "fujinet/platform/posix/serial_channel.h"
@@ -16,6 +17,17 @@
 #if !defined(_WIN32)
 
 namespace fujinet::platform {
+
+// FujiBusNative over a byte stream needs a packet link to find packet boundaries.
+static std::unique_ptr<fujinet::io::Channel>
+with_packet_link(const build::BuildProfile& profile, std::unique_ptr<fujinet::io::Channel> stream)
+{
+    if (!stream || profile.primaryTransport != build::TransportKind::FujiBusNative) {
+        return stream;
+    }
+    std::cout << "[ChannelFactory] Carrying FujiBus packets over a packet link.\n";
+    return std::make_unique<fujinet::io::PacketLinkChannel>(std::move(stream));
+}
 
 std::unique_ptr<fujinet::io::Channel>
 create_channel_for_profile(const build::BuildProfile& profile, const config::FujiConfig& config)
@@ -34,7 +46,8 @@ create_channel_for_profile(const build::BuildProfile& profile, const config::Fuj
     case ChannelKind::TcpSocket:
         std::cout << "[ChannelFactory] Using TCP server channel (TcpSocket) on "
                   << config.channel.tcpHost << ":" << config.channel.tcpPort << std::endl;
-        return posix::create_tcp_server_channel(config.channel.tcpHost, config.channel.tcpPort);
+        return with_packet_link(profile,
+            posix::create_tcp_server_channel(config.channel.tcpHost, config.channel.tcpPort));
 
     case ChannelKind::UdpSocket: {
         const std::string host = config.netsio.host;
@@ -62,7 +75,7 @@ create_channel_for_profile(const build::BuildProfile& profile, const config::Fuj
 
     case ChannelKind::SerialPort:
         std::cout << "[ChannelFactory] Using RS-232 serial channel.\n";
-        return posix::create_serial_channel(config);
+        return with_packet_link(profile, posix::create_serial_channel(config));
     }
 
     std::cout << "[ChannelFactory] Unknown ChannelKind.\n";

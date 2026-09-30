@@ -20,7 +20,7 @@ def main() -> None:
         "--port",
         "-p",
         default=None,
-        help="Serial port (required for device/monitor commands)",
+        help="Serial port or pyserial URL (socket://host:port); prefix link: for a packet link",
     )
     p.add_argument("--baud", type=int, default=115200)
     p.add_argument("--timeout", type=float, default=5)

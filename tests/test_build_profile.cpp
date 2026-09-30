@@ -40,3 +40,15 @@ TEST_CASE("current build profile maps Zorro preset to FujiBusNative")
     CHECK(true);
 #endif
 }
+
+TEST_CASE("current build profile maps the packet-link TCP preset to FujiBusNative over TCP")
+{
+#if defined(FN_BUILD_FUJIBUS_LINK_TCP)
+    const auto profile = build::current_build_profile();
+    CHECK(profile.machine == build::Machine::Generic);
+    CHECK(profile.primaryTransport == build::TransportKind::FujiBusNative);
+    CHECK(profile.primaryChannel == build::ChannelKind::TcpSocket);
+#else
+    CHECK(true);
+#endif
+}

@@ -60,6 +60,9 @@ interleaving independent framers or resetting an adapter behind a framer with
 an outstanding slot is unsupported. Retire the old framer and discard its slot
 before handing off the adapter. A handoff does not clear adapter uncertainty.
 
+`io::PacketLink` ([packet link](packet_link.md)) is an adapter that implements
+this contract over a byte stream.
+
 The interface is `IPacketIO` in `include/fujinet/io/core/packet_io.h`:
 
 ```cpp

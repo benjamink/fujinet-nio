@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "fujinet/io/core/channel.h"
+#include "fujinet/io/core/packet_link.h"
 #include "fujinet/build/profile.h"
 #include "fujinet/config/fuji_config.h"
 #if defined(FN_BUILD_ATARI_FUJIBUS_SIO)
@@ -55,6 +56,11 @@ create_channel_for_profile(const build::BuildProfile& profile, const config::Fuj
         FN_ELOG("Using UartChannel for UartGpio (baud=%u, data_bits=%d)",
                 static_cast<unsigned>(config.channel.uart.baudRate),
                 config.channel.uart.dataBits);
+        if (profile.primaryTransport == build::TransportKind::FujiBusNative) {
+            FN_ELOG("Carrying FujiBus packets over a packet link");
+            return std::make_unique<io::PacketLinkChannel>(
+                std::make_unique<esp32::UartChannel>(config.channel.uart));
+        }
         return std::make_unique<esp32::UartChannel>(config.channel.uart);
 
     case ChannelKind::SioGpio:

@@ -57,6 +57,25 @@
       }
     },
     {
+      "name": "fujibus-link-tcp-debug",
+      "displayName": "FujiBus over a packet link on TCP (Debug)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "FN_DEBUG_LOG_TS": "ON",
+        "FN_HTTPS_TEST_CA_ADDITIVE": "ON",
+        "FN_BUILD_FUJIBUS_LINK_TCP": "ON",
+        "FN_BUILD_FUJIBUS_TCP": "OFF",
+        "FN_BUILD_FUJIBUS_PTY": "OFF",
+        "FN_BUILD_ATARI_SIO": "OFF",
+        "FN_BUILD_ATARI_PTY": "OFF",
+        "FN_BUILD_ATARI_NETSIO": "OFF",
+        "FN_BUILD_POSIX_APP": "ON",
+        "FN_BUILD_TESTS": "ON"
+      }
+    },
+    {
       "name": "fujibus-tcp-release",
       "displayName": "FujiBus over TCP serial (Release)",
       "generator": "Ninja",
@@ -217,6 +236,10 @@
     {
       "name": "fujibus-tcp-debug-build",
       "configurePreset": "fujibus-tcp-debug"
+    },
+    {
+      "name": "fujibus-link-tcp-debug-build",
+      "configurePreset": "fujibus-link-tcp-debug"
     },
     {
       "name": "fujibus-tcp-release-build",

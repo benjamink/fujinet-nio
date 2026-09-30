@@ -59,6 +59,7 @@ idf_component_register(
         lib/modem_device.cpp
         lib/modem_device_init.cpp
         lib/native_framer.cpp
+        lib/packet_link.cpp
         lib/network_device.cpp
         lib/network_device_init.cpp
         lib/network_protocol_registry.cpp
