@@ -22,7 +22,7 @@ static constexpr const char* TAG = "uart_ch";
 
 static constexpr int UART_RX_BUF_SIZE = 2048;
 static constexpr int UART_TX_BUF_SIZE = 0;  // 0 = TX buffer not used, blocking write
-static constexpr int UART_QUEUE_SIZE = 10;
+static constexpr int UART_QUEUE_SIZE = 64;
 static constexpr int MAX_FLUSH_WAIT_TICKS = 200;
 /// HW flow: UART ISR asserts RTS when RX FIFO bytes exceed this threshold.
 static constexpr int UART_RX_FLOW_THRESH = 112;
@@ -249,6 +249,10 @@ bool UartChannel::initialize()
         return false;
     }
 
+    // The default threshold (120) leaves 8 bytes of FIFO slack, too little at
+    // high baud rates when WiFi delays the RX interrupt.
+    (void)uart_set_rx_full_threshold(_uart_port, 32);
+
     return true;
 }
 
@@ -299,21 +303,30 @@ void UartChannel::updateFIFO()
     while (xQueueReceive(_uart_queue, &event, 0) == pdTRUE) {
         process_event(event);
     }
+    // A full event queue drops events but not their bytes.
+    drain_rx();
+}
+
+void UartChannel::drain_rx()
+{
+    std::size_t buffered = 0;
+    if (uart_get_buffered_data_len(_uart_port, &buffered) != ESP_OK || buffered == 0) {
+        return;
+    }
+    const std::size_t old_len = _fifo.size();
+    _fifo.resize(old_len + buffered);
+    int result = uart_read_bytes(_uart_port, &_fifo[old_len], buffered, 0);
+    if (result < 0) {
+        result = 0;
+    }
+    _fifo.resize(old_len + static_cast<std::size_t>(result));
 }
 
 void UartChannel::process_event(const uart_event_t& event)
 {
     switch (event.type) {
     case UART_DATA:
-        {
-            size_t old_len = _fifo.size();
-            _fifo.resize(old_len + event.size);
-            int result = uart_read_bytes(_uart_port, &_fifo[old_len], event.size, 0);
-            if (result < 0) {
-                result = 0;
-            }
-            _fifo.resize(old_len + result);
-        }
+        drain_rx();
         break;
 
     case UART_FIFO_OVF:
