@@ -107,7 +107,12 @@ public:
         if (pr < 0) {
             return false; // error, errno set
         }
-        return pr > 0; // true if ready, false if still connecting
+        if (pr == 0) {
+            // poll() leaves errno alone on timeout; a stale one reads as a failed connect.
+            errno = 0;
+            return false;
+        }
+        return true;
     }
 
     SSize send(int fd, const void* buf, std::size_t len) override
