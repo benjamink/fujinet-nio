@@ -45,7 +45,13 @@ std::size_t apply_boot_mount(
         return 0;
     }
 
-    if (!fs->exists(resolvedPath)) {
+    // Boot mounts are applied before the network link is up, so a network
+    // filesystem can't be probed yet; the lazy mount opens the image on first
+    // use, and retries if it is still unreachable.
+    if (fs::is_network_kind(fs->kind())) {
+        FN_LOGI(TAG, "Boot config_uri '%s' is on a network filesystem; staging without probing",
+                boot.configUri.c_str());
+    } else if (!fs->exists(resolvedPath)) {
         FN_LOGW(TAG,
                 "Boot config_uri '%s' resolved to missing path '%s'",
                 boot.configUri.c_str(),
