@@ -28,6 +28,7 @@ idf_component_register(
         lib/diagnostic_registry.cpp
         lib/diagnostic_uart_channel_provider.cpp
         lib/disk/atr_image.cpp
+        lib/disk/dc42_image.cpp
         lib/disk/disk_service.cpp
         lib/disk/image_probers/fat_bpb_probe.cpp
         lib/disk/image_probers/image_probe.cpp

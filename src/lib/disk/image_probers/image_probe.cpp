@@ -1,5 +1,6 @@
 #include "fujinet/disk/image_probers/image_probe.h"
 
+#include "fujinet/disk/dc42_image.h"
 #include "fujinet/disk/image_probers/fat_bpb_probe.h"
 #include "fujinet/io/devices/byte_codec.h"
 
@@ -109,6 +110,29 @@ public:
     }
 };
 
+// DiskCopy 4.2 is found by its header, whatever the extension.
+class DiskCopy42Probe final : public IImageProbe {
+public:
+    ImageProbeResult probe(
+        fs::IFile& file,
+        std::uint64_t sizeBytes,
+        std::string_view,
+        const MountOptions&
+    ) const override
+    {
+        std::uint8_t header[0x54]{};
+        if (sizeBytes < sizeof(header) || !file.seek(0)) return {};
+        if (file.read(header, sizeof(header)) != sizeof(header)) return {};
+        Dc42Header h;
+        if (!parse_dc42_header(header, sizeBytes, h)) return {};
+
+        DiskGeometry geometry{};
+        geometry.sectorSize = 512;
+        geometry.sectorCount = h.dataBytes / 512;
+        return {true, ImageType::DiskCopy42, geometry, ImageProbeConfidence::Content};
+    }
+};
+
 class ExtensionProbe final : public IImageProbe {
 public:
     ImageProbeResult probe(
@@ -190,6 +214,7 @@ ProbeRegistry make_default_probe_registry()
 {
     ProbeRegistry registry;
     registry.registerProbe(std::make_unique<AtrHeaderProbe>());
+    registry.registerProbe(std::make_unique<DiskCopy42Probe>());
     registry.registerProbe(std::make_unique<FatBpbSectorSizeProbe>());
     registry.registerProbe(std::make_unique<SsdDfsProbe>());
     registry.registerProbe(std::make_unique<ExtensionProbe>());

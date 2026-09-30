@@ -27,6 +27,7 @@ TYPE_TEXT = {
     dp.TYPE_SSD: "ssd",
     dp.TYPE_DSD: "dsd",
     dp.TYPE_RAW: "raw",
+    dp.TYPE_DC42: "dc42",
 }
 
 
@@ -50,7 +51,9 @@ def _type_parse(s: str) -> int:
         return dp.TYPE_DSD
     if sl == "raw":
         return dp.TYPE_RAW
-    raise ValueError(f"unknown type {s!r} (expected auto|atr|ssd|dsd|raw)")
+    if sl == "dc42":
+        return dp.TYPE_DC42
+    raise ValueError(f"unknown type {s!r} (expected auto|atr|ssd|dsd|raw|dc42)")
 
 
 def _send_expect(*, args, command: int, payload: bytes, cmd_txt: str):
@@ -252,7 +255,7 @@ def register_subcommands(subparsers) -> None:
         "uri", help="URI (e.g., tnfs://192.168.1.101:16384/path, sd0:/path, /path)"
     )
     pm.add_argument("--ro", action="store_true", help="Request readonly")
-    pm.add_argument("--type", default="auto", help="auto|atr|ssd|dsd|raw")
+    pm.add_argument("--type", default="auto", help="auto|atr|ssd|dsd|raw|dc42")
     pm.add_argument(
         "--sector-size", type=int, default=256, help="Sector size hint (used for raw)"
     )
