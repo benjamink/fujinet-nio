@@ -10,6 +10,16 @@ namespace fujinet {
 
 static constexpr const char* TAG = "mount";
 
+static bool is_network_uri(const std::string& uri)
+{
+    for (const char* scheme : {"tnfs://", "tnfs+tcp://", "tnfstcp://", "tnfs-tcp://", "http://", "https://"}) {
+        if (uri.rfind(scheme, 0) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::size_t apply_boot_mount(
     disk::DiskService& diskService,
     fs::StorageManager& storage,
@@ -45,7 +55,8 @@ std::size_t apply_boot_mount(
         return 0;
     }
 
-    if (!fs->exists(resolvedPath)) {
+    // The network is not up yet at boot; the lazy mount opens the image later.
+    if (!is_network_uri(boot.configUri) && !fs->exists(resolvedPath)) {
         FN_LOGW(TAG,
                 "Boot config_uri '%s' resolved to missing path '%s'",
                 boot.configUri.c_str(),

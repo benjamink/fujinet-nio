@@ -73,6 +73,22 @@ TEST_CASE("apply_boot_mount skips missing config disk")
     CHECK(!disk.get_pending_mount(0).has_value());
 }
 
+TEST_CASE("apply_boot_mount stages a network config disk it cannot check yet")
+{
+    fujinet::fs::StorageManager storage;
+    REQUIRE(storage.registerFileSystem(std::make_unique<fujinet::tests::MemoryFileSystem>("tnfs")));
+    fujinet::disk::DiskService disk(storage, fujinet::disk::ImageRegistry{});
+
+    fujinet::config::BootConfig boot{};
+    boot.mode = fujinet::config::BootMode::Config;
+    boot.configUri = "tnfs://server.example/boot/autorun.atr";
+
+    CHECK(fujinet::apply_boot_mount(disk, storage, boot, 0) == 1);
+    auto pending = disk.get_pending_mount(0);
+    REQUIRE(pending.has_value());
+    CHECK(pending->uri == "tnfs://server.example/boot/autorun.atr");
+}
+
 TEST_CASE("apply_boot_mount uses the bootstrap-selected active disk unit")
 {
     fujinet::fs::StorageManager storage;
