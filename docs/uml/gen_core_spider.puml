@@ -7,6 +7,7 @@ Atr
 Ssd
 Dsd
 Raw
+DiskCopy42
 }
 enum "disk::DiskError" as C_0009077318554391460630
 enum C_0009077318554391460630 {
@@ -103,6 +104,28 @@ __
 -_fileSizeBytes : std::uint64_t
 -_geo : DiskGeometry
 -_readOnly : bool
+}
+class "disk::Dc42DiskImage" as C_0013203121269057240614
+class C_0013203121269057240614 {
+-check(std::uint32_t lba, const void * buf, std::size_t bytes) const : DiskResult
++flush() : DiskResult
++geometry() const noexcept : DiskGeometry
++image_stats() const noexcept : DiskImageStats
++mount(std::unique_ptr<fs::IFile> file, std::uint64_t sizeBytes, const MountOptions & opts) : DiskResult
+{static} -offset_of(std::uint32_t lba) noexcept : std::uint64_t
++read_only() const noexcept : bool
++read_sector(std::uint32_t lba, std::uint8_t * dst, std::size_t dstBytes) : DiskResult
++reset_image_stats() noexcept : void
+-rewrite_data_checksum() : bool
++type() const noexcept : ImageType
++unmount() : DiskResult
++write_sector(std::uint32_t lba, const std::uint8_t * src, std::size_t srcBytes) : DiskResult
+__
+-_checksumStale : bool
+-_file : std::unique_ptr<fs::IFile>
+-_geo : DiskGeometry
+-_readOnly : bool
+-_stats : DiskImageStats
 }
 class "disk::ImageRegistry" as C_0008422084792172174393
 class C_0008422084792172174393 {
@@ -292,6 +315,11 @@ __
 class "disk::SsdDfsProbe" as C_0004156657290628951180
 class C_0004156657290628951180 {
 +probe(fs::IFile & file, std::uint64_t sizeBytes, std::string_view path, const MountOptions &) const : ImageProbeResult
+__
+}
+class "disk::DiskCopy42Probe" as C_0017082979857162707783
+class C_0017082979857162707783 {
++probe(fs::IFile & file, std::uint64_t sizeBytes, std::string_view, const MountOptions &) const : ImageProbeResult
 __
 }
 class "disk::ExtensionProbe" as C_0018260908211426513164
@@ -1656,6 +1684,13 @@ C_0006605079759133086700 ..> C_0011001454402567554105
 C_0006605079759133086700 o-- C_0014904826619290153445 : -_file
 C_0006605079759133086700 o-- C_0008566044437912091269 : -_geo
 C_0009299638825477999089 <|-- C_0006605079759133086700
+C_0013203121269057240614 ..> C_0018082651107742917098
+C_0013203121269057240614 ..> C_0017121056686289896594
+C_0013203121269057240614 ..> C_0011001454402567554105
+C_0013203121269057240614 o-- C_0014904826619290153445 : -_file
+C_0013203121269057240614 o-- C_0008566044437912091269 : -_geo
+C_0013203121269057240614 o-- C_0000905559446768315059 : -_stats
+C_0009299638825477999089 <|-- C_0013203121269057240614
 C_0008422084792172174393 ..> C_0018082651107742917098
 C_0008422084792172174393 ..> C_0009299638825477999089
 C_0008422084792172174393 ..> C_0011001454402567554105
@@ -1724,6 +1759,10 @@ C_0004156657290628951180 ..> C_0014904826619290153445
 C_0004156657290628951180 ..> C_0017121056686289896594
 C_0004156657290628951180 ..> C_0015385627141732155341
 C_0005653965888165700902 <|-- C_0004156657290628951180
+C_0017082979857162707783 ..> C_0014904826619290153445
+C_0017082979857162707783 ..> C_0017121056686289896594
+C_0017082979857162707783 ..> C_0015385627141732155341
+C_0005653965888165700902 <|-- C_0017082979857162707783
 C_0018260908211426513164 ..> C_0014904826619290153445
 C_0018260908211426513164 ..> C_0017121056686289896594
 C_0018260908211426513164 ..> C_0015385627141732155341
