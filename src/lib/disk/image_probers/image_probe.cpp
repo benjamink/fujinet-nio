@@ -57,6 +57,32 @@ static bool is_mac_volume_extension(std::string_view ext) noexcept
     return ext == "hda" || ext == "hfv";
 }
 
+// Atari XFD: headerless sectors. The extension is Atari-only, and each
+// standard size means one density, so it may imply geometry. Other sizes,
+// including double-density images with 128-byte boot sectors (183,936 bytes,
+// which a flat raw image cannot express; use ATR), need the client's hint.
+static bool xfd_standard_geometry(std::uint64_t sizeBytes, DiskGeometry& out) noexcept
+{
+    switch (sizeBytes) {
+        case 720u * 128u:  out.sectorSize = 128; out.sectorCount = 720;  return true; // single
+        case 1040u * 128u: out.sectorSize = 128; out.sectorCount = 1040; return true; // enhanced
+        case 720u * 256u:  out.sectorSize = 256; out.sectorCount = 720;  return true; // double
+        default: return false;
+    }
+}
+
+// Geometry from the client's sector size hint, when it fits the file. No
+// match otherwise, so the mount reports InvalidGeometry for a hint that
+// doesn't fit, or GeometryRequired when there is none.
+static ImageProbeResult hinted_raw(std::uint64_t sizeBytes, std::uint16_t hint) noexcept
+{
+    if (hint == 0 || sizeBytes == 0 || (sizeBytes % hint) != 0) return {};
+    DiskGeometry geometry{};
+    geometry.sectorSize = hint;
+    geometry.sectorCount = static_cast<std::uint32_t>(sizeBytes / hint);
+    return {true, ImageType::Raw, geometry, ImageProbeConfidence::Hint};
+}
+
 class AtrHeaderProbe final : public IImageProbe {
 public:
     ImageProbeResult probe(
@@ -172,29 +198,30 @@ public:
             geometry.sectorCount = static_cast<std::uint32_t>(sectorCount);
             return {true, ImageType::Raw, geometry, ImageProbeConfidence::Extension};
         }
-        if (is_mac_volume_extension(ext) && sizeBytes != 0 && (sizeBytes % 512) == 0) {
+        // Extensions that imply geometry for a format whose sector size can
+        // vary yield to a client hint: a file may have a standard size but
+        // another layout.
+        if (is_mac_volume_extension(ext)) {
+            if (opts.sectorSizeHint) return hinted_raw(sizeBytes, opts.sectorSizeHint);
+            if (sizeBytes == 0 || (sizeBytes % 512) != 0) return {};
             DiskGeometry geometry{};
-            geometry.sectorSize = opts.sectorSizeHint ? opts.sectorSizeHint : 512;
-            geometry.sectorCount = static_cast<std::uint32_t>(sizeBytes / geometry.sectorSize);
+            geometry.sectorSize = 512;
+            geometry.sectorCount = static_cast<std::uint32_t>(sizeBytes / 512);
+            return {true, ImageType::Raw, geometry, ImageProbeConfidence::Extension};
+        }
+        if (ext == "xfd") {
+            if (opts.sectorSizeHint) return hinted_raw(sizeBytes, opts.sectorSizeHint);
+            DiskGeometry geometry{};
+            if (!xfd_standard_geometry(sizeBytes, geometry)) return {};
             return {true, ImageType::Raw, geometry, ImageProbeConfidence::Extension};
         }
         if (is_raw_extension(ext)) {
             // Ambiguous: only the client's hint can give geometry. Without a
             // usable one, don't match, so the mount reports GeometryRequired
             // (or InvalidGeometry for a hint that doesn't fit the file).
-            if (opts.sectorSizeHint == 0 || (sizeBytes % opts.sectorSizeHint) != 0) return {};
-            DiskGeometry geometry{};
-            geometry.sectorSize = opts.sectorSizeHint;
-            geometry.sectorCount = static_cast<std::uint32_t>(sizeBytes / opts.sectorSizeHint);
-            return {true, ImageType::Raw, geometry, ImageProbeConfidence::Hint};
+            return hinted_raw(sizeBytes, opts.sectorSizeHint);
         }
-        if (opts.sectorSizeHint != 0 && (sizeBytes % opts.sectorSizeHint) == 0) {
-            DiskGeometry geometry{};
-            geometry.sectorSize = opts.sectorSizeHint;
-            geometry.sectorCount = static_cast<std::uint32_t>(sizeBytes / opts.sectorSizeHint);
-            return {true, ImageType::Raw, geometry, ImageProbeConfidence::Hint};
-        }
-        return {};
+        return hinted_raw(sizeBytes, opts.sectorSizeHint);
     }
 };
 

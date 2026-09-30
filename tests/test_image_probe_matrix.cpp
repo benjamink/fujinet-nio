@@ -22,7 +22,9 @@
 //
 //  1. Content probes win, whatever the extension, and over a client's hint.
 //  2. Only extensions that mean the same thing on every machine may imply
-//     geometry (.atr, .ssd, .dsd, .adf, .hda, .hfv).
+//     geometry (.atr, .ssd, .dsd, .adf, .hda, .hfv, .xfd). Where the format's
+//     sector size varies (.hda, .hfv, .xfd), a client hint that fits the file
+//     takes precedence over that inference.
 //  3. Nothing is guessed. Ambiguous media (.img/.ima/.raw, .dsk, unknown
 //     extensions) get geometry only from content or the client's sector size
 //     hint; otherwise the mount fails with GeometryRequired, or with
@@ -139,6 +141,16 @@ std::vector<Row> matrix()
         {"BBC DFS .ssd", ssd_80track(), "/bbc.ssd", 0, true, ImageType::Ssd, 256, 800, OK},
         {"Mac HD .hda", zeros(2048 * 512), "/hd20.hda", 0, true, ImageType::Raw, 512, 2048, OK},
         {"Mac HD .HFV (case-insensitive)", zeros(2048 * 512), "/vol.HFV", 0, true, ImageType::Raw, 512, 2048, OK},
+        {"Atari SD .xfd", zeros(720 * 128), "/sd.xfd", 0, true, ImageType::Raw, 128, 720, OK},
+        {"Atari ED .xfd", zeros(1040 * 128), "/ed.xfd", 0, true, ImageType::Raw, 128, 1040, OK},
+        {"Atari DD .xfd", zeros(720 * 256), "/dd.XFD", 0, true, ImageType::Raw, 256, 720, OK},
+
+        // A hint takes precedence over inference where the sector size varies,
+        // but never over content or a fixed-size format.
+        {"standard-size .xfd, client hint 256 (other layout)", zeros(720 * 128), "/sd.xfd", 256, true, ImageType::Raw, 256, 360, OK},
+        {"Mac .hda, client hint 1024", zeros(2048 * 512), "/hd.hda", 1024, true, ImageType::Raw, 1024, 1024, OK},
+        {"Amiga .adf, client hint 256 (ignored)", zeros(1760 * 512), "/wb.adf", 256, true, ImageType::Raw, 512, 1760, OK},
+        {"FAT .img, client hint 256 (ignored)", fat_1440k(), "/dos.img", 256, true, ImageType::Raw, 512, 2880, OK},
 
         // Ambiguous media: geometry from the client's hint, or an exact error.
         {"headerless .img, no hint", zeros(1440 * 512), "/blank.img", 0, false, ImageType::Auto, 0, 0, DiskError::GeometryRequired},
@@ -148,8 +160,10 @@ std::vector<Row> matrix()
         {"Apple II 140K .dsk, client hint 256", zeros(143360), "/dos33.dsk", 256, true, ImageType::Raw, 256, 560, OK},
         {"Mac volume named .dsk, no hint", zeros(2048 * 512), "/hd.dsk", 0, false, ImageType::Auto, 0, 0, DiskError::GeometryRequired},
         {"Mac volume named .dsk, client hint 512", zeros(2048 * 512), "/hd.dsk", 512, true, ImageType::Raw, 512, 2048, OK},
-        {"Atari SD .xfd, no hint", zeros(720 * 128), "/sd.xfd", 0, false, ImageType::Auto, 0, 0, DiskError::GeometryRequired},
-        {"Atari SD .xfd, client hint 128", zeros(720 * 128), "/sd.xfd", 128, true, ImageType::Raw, 128, 720, OK},
+        {"DD .xfd with 128-byte boot sectors, no hint", zeros(3 * 128 + 717 * 256), "/dd3.xfd", 0, false, ImageType::Auto, 0, 0, DiskError::GeometryRequired},
+        {"non-standard .xfd, client hint 128", zeros(3 * 128 + 717 * 256), "/dd3.xfd", 128, true, ImageType::Raw, 128, 1437, OK},
+        {".xfd, hint that does not fit", zeros(720 * 128), "/sd.xfd", 1000, false, ImageType::Auto, 0, 0, DiskError::InvalidGeometry},
+        {"Mac .hda, hint that does not fit", zeros(2048 * 512), "/hd.hda", 1000, false, ImageType::Auto, 0, 0, DiskError::InvalidGeometry},
         {"CPC extended .dsk", cpc_extended(194816), "/cpc.dsk", 0, false, ImageType::Auto, 0, 0, DiskError::GeometryRequired},
         {"CPC extended .dsk, 512-aligned size", cpc_extended(390 * 512), "/cpc.dsk", 0, false, ImageType::Auto, 0, 0, DiskError::GeometryRequired},
 
@@ -210,10 +224,12 @@ TEST_CASE("Image probe matrix: an explicit Raw mount never guesses a sector size
 
     MountOptions raw{};
     raw.typeOverride = ImageType::Raw;
-    // No content, no unambiguous extension, no hint: any size would be a guess
-    // (a single-density .xfd has 128-byte sectors, not the old 256 default).
+    // No content, no unambiguous extension, no hint: any size would be a guess.
     CHECK(svc.mount(0, "mem", "/dos33.dsk", raw).error == DiskError::GeometryRequired);
-    CHECK(svc.mount(0, "mem", "/sd.xfd", raw).error == DiskError::GeometryRequired);
+    // A standard .xfd is inferred, as 128-byte sectors (not the old 256 default).
+    REQUIRE(svc.mount(0, "mem", "/sd.xfd", raw).ok());
+    CHECK(svc.info(0).geometry.sectorSize == 128);
+    CHECK(svc.info(0).geometry.sectorCount == 720);
 
     raw.sectorSizeHint = 256;
     REQUIRE(svc.mount(1, "mem", "/dos33.dsk", raw).ok());

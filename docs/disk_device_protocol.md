@@ -117,6 +117,12 @@ v1 includes (image-format understanding required for sector I/O):
     case-insensitively as raw 512-byte media, unless the mount supplies a
     sector size hint; files that are not whole 512-byte blocks are left to
     the other probes
+  - `.xfd` (Atari, headerless) is recognized case-insensitively by its
+    standard sizes: 92,160 bytes as 720 x 128 (single density), 133,120 as
+    1,040 x 128 (enhanced) and 184,320 as 720 x 256 (double). Other sizes,
+    including double-density images with 128-byte boot sectors (183,936
+    bytes, which a flat raw image cannot represent; use ATR), need the
+    client's sector size hint
   - `.dsk` is deliberately not recognized by extension (see the detection
     policy below)
 
@@ -179,7 +185,11 @@ them, so detection must never guess:
    called, and its geometry overrides any sector size hint the client sent.
 2. **Only unambiguous extensions imply geometry.** An extension may select a
    type or geometry only if it means the same thing on every machine:
-   `.atr`, `.ssd`, `.dsd`, `.adf`, `.hda`, `.hfv`.
+   `.atr`, `.ssd`, `.dsd`, `.adf`, `.hda`, `.hfv`, `.xfd`. Where that
+   format's sector size varies (`.hda`, `.hfv`, `.xfd`), the geometry is an
+   inference, so a client's sector size hint takes precedence when it fits
+   the file (an image of a standard size may have another layout). Where the
+   sector size is fixed (`.adf` is always 512), the hint is ignored.
 3. **Nothing is guessed.** `.img`, `.ima` and `.raw` are raw, but get
    geometry only from content or the client's sector size hint. An explicit
    `Raw` type is no different. Without either, the mount fails with
