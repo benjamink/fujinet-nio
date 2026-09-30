@@ -50,6 +50,24 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.NIO_WORKSPACE_TOKEN || github.token }}
 
+      # The MS-DOS and Atari boot disks are built from nio-core-apps, and the
+      # BBC boot disk stages the nio-config application.
+      - name: Checkout nio-core-apps
+        uses: actions/checkout@v4
+        with:
+          repository: markjfisher/nio-core-apps
+          path: ${{ env.WORKSPACE_DIR }}/repos/nio-core-apps
+          fetch-depth: 0
+          token: ${{ secrets.NIO_WORKSPACE_TOKEN || github.token }}
+
+      - name: Checkout nio-config
+        uses: actions/checkout@v4
+        with:
+          repository: markjfisher/nio-config
+          path: ${{ env.WORKSPACE_DIR }}/repos/nio-config
+          fetch-depth: 0
+          token: ${{ secrets.NIO_WORKSPACE_TOKEN || github.token }}
+
       - name: Checkout fn-rom
         uses: actions/checkout@v4
         with:
@@ -87,6 +105,17 @@ jobs:
           make -C /tmp/AtariSIO/tools -f Makefile.posix
           echo "/tmp/AtariSIO/tools" >> "$GITHUB_PATH"
 
+      # fn-rom's SSD builder needs basictool (BBC BASIC tokeniser) and dfstool.
+      # Pinned so the boot disks don't change with upstream heads.
+      - name: Install BBC disk tools
+        run: |
+          git -c advice.detachedHead=false clone --depth 1 -b v0.10 \
+            https://github.com/ZornsLemma/basictool.git /tmp/basictool
+          make -C /tmp/basictool/src
+          echo "/tmp/basictool" >> "$GITHUB_PATH"
+          cargo install --locked --git https://github.com/rcook/dfstool \
+            --rev 4e802d12a1645f5dfc31c7f316fdf58c0310876a
+
       - name: Build cc65
         working-directory: ${{ env.WORKSPACE_DIR }}/repos/cc65
         run: |
@@ -110,7 +139,7 @@ jobs:
           name: fujinet-nio-boot-disks-${{ github.run_id }}
           path: |
             ${{ env.WORKSPACE_DIR }}/repos/fujinet-nio/distfiles/boot/atari/autorun.atr
-            ${{ env.WORKSPACE_DIR }}/repos/fujinet-nio/distfiles/boot/bbc/autorun.ssd
+            ${{ env.WORKSPACE_DIR }}/repos/fujinet-nio/distfiles/boot/bbc/FN-BOOT.ssd
             ${{ env.WORKSPACE_DIR }}/repos/fujinet-nio/distfiles/boot/msdos/autorun.img
             ${{ env.WORKSPACE_DIR }}/build/logs/**
           if-no-files-found: warn
