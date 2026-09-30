@@ -26,6 +26,7 @@ ReadOnly
 OutOfRange
 IoError
 InternalError
+GeometryRequired
 }
 class "disk::DiskGeometry" as C_0008566044437912091269
 class C_0008566044437912091269 {
@@ -967,6 +968,7 @@ class C_0005932353517374970487 {
 -clear_runtime_mount(std::size_t slotIndex) : void
 -clear_runtime_mounts() : bool
 +configure_boot_mount(std::string configUri, bool readOnly) : void
+{static} -disk_response(const IORequest & request, disk::DiskError e) : IOResponse
 +disk_service() : disk::DiskService &
 +disk_service() const : const disk::DiskService &
 +handle(const IORequest & request) : IOResponse
@@ -1887,6 +1889,7 @@ C_0015529497257294770104 <|-- C_0003433839086217597071
 C_0005932353517374970487 ..> C_0008422084792172174393
 C_0005932353517374970487 ..> C_0002386736627821114488
 C_0005932353517374970487 ..> C_0002942984525013396621
+C_0005932353517374970487 ..> C_0009077318554391460630
 C_0005932353517374970487 ..> C_0016408095638929073935
 C_0005932353517374970487 --> C_0001279065520068563954 : -_storage
 C_0005932353517374970487 o-- C_0014804734580910690913 : -_svc

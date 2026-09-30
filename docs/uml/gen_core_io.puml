@@ -813,6 +813,7 @@ class C_0005932353517374970487 {
 -clear_runtime_mount(std::size_t slotIndex) : void
 -clear_runtime_mounts() : bool
 +configure_boot_mount(std::string configUri, bool readOnly) : void
+{static} -disk_response(const IORequest & request, disk::DiskError e) : IOResponse
 +disk_service() : disk::DiskService &
 +disk_service() const : const disk::DiskService &
 +handle(const IORequest & request) : IOResponse
