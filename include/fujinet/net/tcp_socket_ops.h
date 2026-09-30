@@ -48,7 +48,7 @@ public:
 
     // Check if connect completed. Returns:
     // - true if connected (check err via get_so_error)
-    // - false if still connecting
+    // - false if still connecting, with errno cleared to 0
     // On error, returns false and sets errno.
     virtual bool poll_connect_complete(int fd) = 0;
 

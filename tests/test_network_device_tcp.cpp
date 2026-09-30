@@ -4,6 +4,12 @@
 
 // Pull in the TCP backend implementation (POSIX)
 #include "fujinet/platform/posix/tcp_network_protocol_posix.h"
+#include "fujinet/platform/posix/tcp_socket_ops_posix.h"
+#include "fujinet/net/tcp_network_protocol_common.h"
+
+#include <cerrno>
+#include <fcntl.h>
+#include <poll.h>
 
 #include <atomic>
 #include <chrono>
@@ -778,6 +784,96 @@ TEST_CASE("TCP: Read preserves bytes across 64K stream and ring boundary")
     }
 
     CHECK(close_req(dev, deviceId, handle).status == StatusCode::Ok);
+}
+
+
+namespace {
+
+// A loopback listener that never accepts and has a full backlog, so a further
+// nonblocking connect stays in progress (the SYN is dropped, not refused).
+struct SaturatedListener {
+    int listen_fd = -1;
+    std::uint16_t port = 0;
+    std::vector<int> fillers;
+
+    bool start()
+    {
+        listen_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (listen_fd < 0) return false;
+        sockaddr_in addr {};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (::bind(listen_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) return false;
+        if (::listen(listen_fd, 0) != 0) return false;
+        socklen_t len = sizeof(addr);
+        ::getsockname(listen_fd, reinterpret_cast<sockaddr*>(&addr), &len);
+        port = ntohs(addr.sin_port);
+        return true;
+    }
+
+    // Returns a nonblocking fd whose connect is still in progress, or -1.
+    int pending_connect()
+    {
+        sockaddr_in addr {};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = htons(port);
+        for (int i = 0; i < 16; ++i) {
+            const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+            ::fcntl(fd, F_SETFL, ::fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+            (void)::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+            pollfd pfd {fd, POLLOUT, 0};
+            if (::poll(&pfd, 1, 100) == 0) return fd;
+            fillers.push_back(fd);
+        }
+        return -1;
+    }
+
+    ~SaturatedListener()
+    {
+        for (int fd : fillers) ::close(fd);
+        if (listen_fd >= 0) ::close(listen_fd);
+    }
+};
+
+} // namespace
+
+TEST_CASE("POSIX socket ops: in-progress connect does not report a stale errno")
+{
+    SaturatedListener srv;
+    REQUIRE(srv.start());
+    const int fd = srv.pending_connect();
+    REQUIRE(fd >= 0);
+
+    auto& ops = fujinet::net::get_posix_socket_ops();
+    errno = EBADF; // left over from some unrelated call
+    CHECK_FALSE(ops.poll_connect_complete(fd));
+    CHECK(ops.last_errno() == 0);
+    ::close(fd);
+}
+
+TEST_CASE("TCP common: stale errno while connecting is not a connect failure")
+{
+    SaturatedListener srv;
+    REQUIRE(srv.start());
+    const int probe = srv.pending_connect(); // saturate the backlog
+    REQUIRE(probe >= 0);
+
+    fujinet::net::TcpNetworkProtocolCommon proto(fujinet::net::get_posix_socket_ops());
+    fujinet::io::NetworkOpenRequest req{};
+    req.url = "tcp://127.0.0.1:" + std::to_string(srv.port);
+    REQUIRE(proto.open(req) == StatusCode::Ok);
+    REQUIRE(proto.state() == fujinet::net::TcpNetworkProtocolCommon::State::Connecting);
+
+    errno = EBADF;
+    proto.poll();
+    CHECK(proto.state() == fujinet::net::TcpNetworkProtocolCommon::State::Connecting);
+
+    const std::uint8_t byte = 0x41;
+    std::uint16_t written = 0;
+    errno = EBADF;
+    CHECK(proto.write_body(0, &byte, 1, written) != StatusCode::IOError);
+    ::close(probe);
 }
 
 } // namespace fujinet::tests
