@@ -48,7 +48,7 @@ class FakePort:
         self.packets += 1
         self.last_request = rec.body
         if rec.generation != self.gen:
-            self.out += pl.encode(pl.KIND_ERROR, rec.generation, b"\x04")
+            self.out += pl.encode(pl.KIND_ERROR, rec.generation, bytes([pl.ERR_NOT_SYNCHRONISED]))
         elif isinstance(self.answer, int):
             self.out += pl.encode(pl.KIND_ERROR, rec.generation, bytes([self.answer]))
         elif self.answer == "echo":

@@ -20,14 +20,13 @@ namespace fujinet::io {
 class PacketLink : public IPacketIO {
 public:
     enum class Kind : std::uint8_t { Packet = 0x01, Error = 0x02, Sync = 0x10, SyncAck = 0x11 };
-    // Code 3 is reserved: it was Busy before Unanswered made it unreachable.
     enum class Error : std::uint8_t {
         Corrupt = 1,
         Oversized = 2,
-        NotSynchronised = 4,
-        Empty = 5,
-        Unanswered = 6,
-        UnsupportedVersion = 7,
+        NotSynchronised = 3,
+        Empty = 4,
+        Unanswered = 5,
+        UnsupportedVersion = 6,
     };
 
     static constexpr std::uint8_t kVersion = 1;

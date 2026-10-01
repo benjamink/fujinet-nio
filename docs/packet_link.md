@@ -56,11 +56,10 @@ ignores bytes it does not know, and ignores records of a kind it does not know.
 | --- | --- | --- | --- |
 | `1` | Corrupt | a record whose CRC failed | no |
 | `2` | Oversized | a request body over the peer's capacity | no |
-| `3` | (reserved) | formerly Busy; never sent | |
-| `4` | NotSynchronised | no Sync yet, or a different generation | no |
-| `5` | Empty | an empty request body | no |
-| `6` | Unanswered | NIO took the request but gave no answer (below) | maybe |
-| `7` | UnsupportedVersion | a Sync without a version the peer speaks | (Sync) |
+| `3` | NotSynchronised | no Sync yet, or a different generation | no |
+| `4` | Empty | an empty request body | no |
+| `5` | Unanswered | NIO took the request but gave no answer (below) | maybe |
+| `6` | UnsupportedVersion | a Sync without a version the peer speaks | (Sync) |
 
 A receiver scans for the sync bytes and ignores anything else. A record whose
 length is over capacity, or whose CRC fails, is dropped and scanning resumes
