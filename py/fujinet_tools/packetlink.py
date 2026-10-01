@@ -32,15 +32,18 @@ KIND_ERROR = 0x02
 KIND_SYNC = 0x10
 KIND_SYNC_ACK = 0x11
 
-ERR_UNANSWERED = 6
-ERR_UNSUPPORTED_VERSION = 7
+ERR_CORRUPT = 1
+ERR_OVERSIZED = 2
+ERR_NOT_SYNCHRONISED = 3
+ERR_EMPTY = 4
+ERR_UNANSWERED = 5
+ERR_UNSUPPORTED_VERSION = 6
 
-# Code 3 is reserved (formerly Busy).
 ERRORS = {
-    1: "Corrupt",
-    2: "Oversized",
-    4: "NotSynchronised",
-    5: "Empty",
+    ERR_CORRUPT: "Corrupt",
+    ERR_OVERSIZED: "Oversized",
+    ERR_NOT_SYNCHRONISED: "NotSynchronised",
+    ERR_EMPTY: "Empty",
     ERR_UNANSWERED: "Unanswered",
     ERR_UNSUPPORTED_VERSION: "UnsupportedVersion",
 }

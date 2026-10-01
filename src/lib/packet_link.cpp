@@ -226,7 +226,7 @@ PacketReceiveResult PacketLink::receive(std::uint8_t* buffer, std::size_t limit)
             sync(generation, body);
             break;
         case Kind::Packet:
-            // Never Busy here: an outstanding request was completed on entry.
+            // Nothing is outstanding here: any request was completed on entry.
             if (_state == State::Unsynchronised || generation != _generation) {
                 ++_stats.refused;
                 reply_error(generation, Error::NotSynchronised);
