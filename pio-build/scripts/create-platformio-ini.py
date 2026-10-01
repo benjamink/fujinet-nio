@@ -19,7 +19,10 @@ def create_local_ini(board_name, local_file_name):
     config.set('fujinet', 'console_type', "noconsole")
     with open(local_file_name, 'w') as configfile:
         config.write(configfile)
-        configfile.write("; console_type can be one of [noconsole, consolecdc, consoleuart], if unset, it defaults to noconsole\n\n")
+        configfile.write("; console_type can be one of [noconsole, consolecdc, consoleuart], if unset, it defaults to noconsole\n")
+        configfile.write("; boot_images picks the boot images for the flash filesystem: paths under\n")
+        configfile.write("; distfiles/esp32-data/boot, space or comma separated; unset packs them all\n")
+        configfile.write("; boot_images = amiga/wb32\n\n")
         configfile.write("[env]\n;build_flags += \n")
     print(f"{local_file_name} file created with build_board = {board_name}")
 
