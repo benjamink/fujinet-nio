@@ -1,5 +1,6 @@
 #include "fujinet/platform/esp32/uart_channel.h"
 #include "fujinet/core/logging.h"
+#include "fujinet/io/uart_rx_drain.h"
 #include "fujinet/io/uart_tx_pacing.h"
 #include "fujinet/platform/esp32/pinmap.h"
 
@@ -22,7 +23,7 @@ static constexpr const char* TAG = "uart_ch";
 
 static constexpr int UART_RX_BUF_SIZE = 2048;
 static constexpr int UART_TX_BUF_SIZE = 0;  // 0 = TX buffer not used, blocking write
-static constexpr int UART_QUEUE_SIZE = 10;
+static constexpr int UART_QUEUE_SIZE = 64;
 static constexpr int MAX_FLUSH_WAIT_TICKS = 200;
 /// HW flow: UART ISR asserts RTS when RX FIFO bytes exceed this threshold.
 static constexpr int UART_RX_FLOW_THRESH = 112;
@@ -249,6 +250,10 @@ bool UartChannel::initialize()
         return false;
     }
 
+    // The default threshold (120) leaves 8 bytes of FIFO slack, too little at
+    // high baud rates when WiFi delays the RX interrupt.
+    (void)uart_set_rx_full_threshold(_uart_port, 32);
+
     return true;
 }
 
@@ -294,28 +299,35 @@ void UartChannel::updateFIFO()
         return;
     }
 
-    uart_event_t event;
+    // A full event queue drops events but not their bytes, so reads take
+    // everything the driver holds rather than what each event announced.
+    struct EspUartRx {
+        using Event = uart_event_t;
+        UartChannel& ch;
 
-    while (xQueueReceive(_uart_queue, &event, 0) == pdTRUE) {
-        process_event(event);
-    }
+        bool next_event(Event& event)
+        {
+            return xQueueReceive(ch._uart_queue, &event, 0) == pdTRUE;
+        }
+        bool is_data(const Event& event) const { return event.type == UART_DATA; }
+        void handle(const Event& event) { ch.process_event(event); }
+        bool buffered_len(std::size_t& len)
+        {
+            return uart_get_buffered_data_len(ch._uart_port, &len) == ESP_OK;
+        }
+        int read(std::uint8_t* dst, std::size_t len)
+        {
+            return uart_read_bytes(ch._uart_port, dst, len, 0);
+        }
+    };
+
+    EspUartRx rx{*this};
+    io::uart_rx_service(rx, _fifo);
 }
 
 void UartChannel::process_event(const uart_event_t& event)
 {
     switch (event.type) {
-    case UART_DATA:
-        {
-            size_t old_len = _fifo.size();
-            _fifo.resize(old_len + event.size);
-            int result = uart_read_bytes(_uart_port, &_fifo[old_len], event.size, 0);
-            if (result < 0) {
-                result = 0;
-            }
-            _fifo.resize(old_len + result);
-        }
-        break;
-
     case UART_FIFO_OVF:
         FN_LOGW(TAG, "UART FIFO overflow");
         uart_flush_input(_uart_port);
