@@ -460,9 +460,11 @@ Currently supported profiles:
     on TCP, for emulators and tools that play the part of a bridge microcontroller.
   - CMake preset: `fujibus-link-tcp-debug`
 
-`FujiBusNative` over a byte-stream channel (TCP or serial on POSIX, UART on
-ESP32) always runs through a packet link: the channel factory wraps the stream
-in `io::PacketLinkChannel`. A Pty stays unwrapped.
+A profile carries `FujiBusNative` over a byte-stream channel by setting
+`packetLink = true`; the channel factory then wraps the stream in
+`io::PacketLinkChannel` (TCP or serial on POSIX, UART or USB CDC on ESP32).
+`FujiBusNative` alone doesn't imply a link: the Zorro placeholder leaves it
+unset, so its Pty has no packet I/O and native bootstrap rejects it, as before.
 
 - `FN_BUILD_ZORRO`
   - `machine          = Machine::Generic`

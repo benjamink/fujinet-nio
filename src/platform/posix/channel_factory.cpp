@@ -18,15 +18,14 @@
 
 namespace fujinet::platform {
 
-// FujiBusNative over a byte stream needs a packet link to find packet boundaries.
+// A profile that asks for a packet link carries its packets over this stream.
 static std::unique_ptr<fujinet::io::Channel>
 with_packet_link(const build::BuildProfile& profile, std::unique_ptr<fujinet::io::Channel> stream)
 {
-    if (!stream || profile.primaryTransport != build::TransportKind::FujiBusNative) {
-        return stream;
+    if (profile.packetLink && stream) {
+        std::cout << "[ChannelFactory] Carrying FujiBus packets over a packet link.\n";
     }
-    std::cout << "[ChannelFactory] Carrying FujiBus packets over a packet link.\n";
-    return std::make_unique<fujinet::io::PacketLinkChannel>(std::move(stream));
+    return fujinet::io::with_packet_link(profile.packetLink, std::move(stream));
 }
 
 std::unique_ptr<fujinet::io::Channel>

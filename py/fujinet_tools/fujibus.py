@@ -407,7 +407,13 @@ class FujiBusSession:
         self._stash[(pkt.device, pkt.command)].append(pkt)
 
     def send_command(
-        self, device: int, command: int, payload: bytes, *, cmd_txt: str = ""
+        self,
+        device: int,
+        command: int,
+        payload: bytes,
+        *,
+        cmd_txt: str = "",
+        timeout: Optional[float] = None,
     ) -> None:
         if self._ser is None:
             raise RuntimeError("FujiBusSession is not attached to a serial port")
@@ -416,7 +422,9 @@ class FujiBusSession:
             raw = build_fuji_packet_decoded(device, command, payload)
             if self._debug:
                 print_packet(f"Outgoing request{(' ' + cmd_txt) if cmd_txt else ''}", raw)
-            answer = self._link.exchange(raw, timeout=self.link_timeout)
+            answer = self._link.exchange(
+                raw, timeout=self.link_timeout if timeout is None else timeout
+            )
             resp = parse_fuji_packet(answer) if answer else None
             if resp is not None:
                 self.stash(resp)
@@ -480,7 +488,10 @@ class FujiBusSession:
         if hit is not None:
             return hit
 
-        self.send_command(device, command, payload, cmd_txt=cmd_txt)
+        self.send_command(device, command, payload, cmd_txt=cmd_txt, timeout=timeout)
+        if self._link is not None:
+            # The exchange has already waited for the answer, or given up.
+            return self.pop_matching(expect_device, expect_command, accept=accept)
 
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:

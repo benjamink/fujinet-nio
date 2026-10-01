@@ -11,11 +11,25 @@
 namespace fujinet::io {
 
 // The peer side of a packet link over a byte stream: docs/packet_link.md.
+//
+// NIO answers each request before it reads the next one (IOService handles a
+// request and sends its response in the same pass). The link relies on that:
+// a request still outstanding when receive() is next called was not answered,
+// so the link completes it with Error::Unanswered.
 class PacketLink : public IPacketIO {
 public:
     enum class Kind : std::uint8_t { Packet = 0x01, Error = 0x02, Sync = 0x10, SyncAck = 0x11 };
-    enum class Error : std::uint8_t { Corrupt = 1, Oversized = 2, Busy = 3, NotSynchronised = 4, Empty = 5 };
+    // Code 3 is reserved: it was Busy before Unanswered made it unreachable.
+    enum class Error : std::uint8_t {
+        Corrupt = 1,
+        Oversized = 2,
+        NotSynchronised = 4,
+        Empty = 5,
+        Unanswered = 6,
+        UnsupportedVersion = 7,
+    };
 
+    static constexpr std::uint8_t kVersion = 1;
     static constexpr std::size_t kDefaultCapacity = 4096;
     static constexpr std::uint64_t kRecordTimeoutMs = 100;
 
@@ -35,6 +49,9 @@ private:
     enum class State { Unsynchronised, Idle, Busy };
 
     void fill();
+    bool front_expired() const;
+    void drop_front(std::size_t n);
+    void sync(std::uint8_t generation, const std::vector<std::uint8_t>& body);
     void reply(Kind kind, std::uint8_t generation, const std::uint8_t* body = nullptr, std::size_t size = 0);
     void reply_error(std::uint8_t generation, Error e);
 
@@ -42,6 +59,10 @@ private:
     Clock _now;
     std::vector<std::uint8_t> _rx;
     std::uint64_t _lastByteMs{0};
+    // The record at the front of _rx was incomplete when the last receive()
+    // returned, and its bytes then stopped for kRecordTimeoutMs.
+    bool _frontIncomplete{false};
+    bool _frontStale{false};
     State _state{State::Unsynchronised};
     std::uint8_t _generation{0};
 };
@@ -67,5 +88,9 @@ private:
     std::unique_ptr<Channel> _stream;
     PacketLink _link;
 };
+
+// `stream` wrapped in a PacketLinkChannel when `packet_link` is set (a build
+// profile's packetLink), otherwise `stream` itself.
+std::unique_ptr<Channel> with_packet_link(bool packet_link, std::unique_ptr<Channel> stream);
 
 } // namespace fujinet::io

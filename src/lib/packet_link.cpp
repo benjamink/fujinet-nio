@@ -77,23 +77,72 @@ void PacketLink::fill()
     while (_rx.size() < limit && _stream.available()) {
         const std::size_t n = _stream.read(chunk, std::min(sizeof(chunk), limit - _rx.size()));
         if (n == 0) break;
+        const std::uint64_t now = _now();
+        // A gap of kRecordTimeoutMs ends an incomplete record even if nothing
+        // polled during it, so a controller's quiet pause before Sync works
+        // while NIO is blocked waiting for input.
+        if (_frontIncomplete && now - _lastByteMs >= kRecordTimeoutMs) _frontStale = true;
+        _frontIncomplete = false;
         _rx.insert(_rx.end(), chunk, chunk + n);
-        _lastByteMs = _now();
+        _lastByteMs = now;
     }
+}
+
+bool PacketLink::front_expired() const
+{
+    return _frontStale || _now() - _lastByteMs >= kRecordTimeoutMs;
+}
+
+void PacketLink::drop_front(std::size_t n)
+{
+    _rx.erase(_rx.begin(), _rx.begin() + static_cast<std::ptrdiff_t>(std::min(n, _rx.size())));
+    _frontStale = false;
+}
+
+void PacketLink::sync(std::uint8_t generation, const std::vector<std::uint8_t>& body)
+{
+    // Whatever the outcome, the controller has abandoned the old generation.
+    _state = State::Unsynchronised;
+    if (body.empty() || body[0] == 0) {
+        reply_error(generation, Error::UnsupportedVersion);
+        return;
+    }
+    _generation = generation;
+    _state = State::Idle;
+    const std::size_t cap = std::min<std::size_t>(capacity(), 0xFFFF);
+    const std::uint8_t ack[] = {
+        std::min(body[0], kVersion),
+        static_cast<std::uint8_t>(cap),
+        static_cast<std::uint8_t>(cap >> 8),
+    };
+    reply(Kind::SyncAck, generation, ack, sizeof(ack));
 }
 
 PacketReceiveResult PacketLink::receive(std::uint8_t* buffer, std::size_t limit)
 {
+    if (_state == State::Busy) {
+        // NIO reads again only after answering (see the class comment), so this
+        // request got no answer: it was not a valid FujiBus packet, or its answer
+        // could not be sent. It may have run.
+        reply_error(_generation, Error::Unanswered);
+        _state = State::Idle;
+    }
     for (;;) {
         fill();
-        auto sync = _rx.begin();
-        while (sync != _rx.end() && !(*sync == kSync0 && (sync + 1 == _rx.end() || *(sync + 1) == kSync1))) {
-            ++sync;
+        auto start = _rx.begin();
+        while (start != _rx.end() && !(*start == kSync0 && (start + 1 == _rx.end() || *(start + 1) == kSync1))) {
+            ++start;
         }
-        _rx.erase(_rx.begin(), sync);
+        if (start != _rx.begin()) drop_front(static_cast<std::size_t>(start - _rx.begin()));
         if (_rx.size() < kHeader) {
             if (_stream.available()) continue;
-            return {_rx.empty() ? PacketIOStatus::NoData : PacketIOStatus::Incomplete};
+            if (_rx.empty()) return {PacketIOStatus::NoData};
+            if (front_expired()) {
+                drop_front(2);
+                continue;
+            }
+            _frontIncomplete = true;
+            return {PacketIOStatus::Incomplete};
         }
 
         const auto kind = static_cast<Kind>(_rx[2]);
@@ -104,14 +153,17 @@ PacketReceiveResult PacketLink::receive(std::uint8_t* buffer, std::size_t limit)
             if (kind == Kind::Packet && _state == State::Idle && generation == _generation) {
                 reply_error(generation, Error::Oversized);
             }
-            _rx.erase(_rx.begin(), _rx.begin() + 2);
+            drop_front(2);
             continue;
         }
         const std::size_t total = kHeader + size + kCrc;
         if (_rx.size() < total) {
-            if (_now() - _lastByteMs < kRecordTimeoutMs) return {PacketIOStatus::Incomplete};
-            _rx.erase(_rx.begin(), _rx.begin() + 2);
-            continue;
+            if (front_expired()) {
+                drop_front(2);
+                continue;
+            }
+            _frontIncomplete = true;
+            return {PacketIOStatus::Incomplete};
         }
 
         std::uint32_t crc = 0;
@@ -120,24 +172,21 @@ PacketReceiveResult PacketLink::receive(std::uint8_t* buffer, std::size_t limit)
             if (kind == Kind::Packet && _state == State::Idle && generation == _generation) {
                 reply_error(generation, Error::Corrupt);
             }
-            _rx.erase(_rx.begin(), _rx.begin() + 2);
+            drop_front(2);
             continue;
         }
 
         std::vector<std::uint8_t> body(_rx.begin() + kHeader, _rx.begin() + kHeader + size);
-        _rx.erase(_rx.begin(), _rx.begin() + total);
+        drop_front(total);
 
         switch (kind) {
         case Kind::Sync:
-            _generation = generation;
-            _state = State::Idle;
-            reply(Kind::SyncAck, generation);
+            sync(generation, body);
             break;
         case Kind::Packet:
+            // Never Busy here: an outstanding request was completed on entry.
             if (_state == State::Unsynchronised || generation != _generation) {
                 reply_error(generation, Error::NotSynchronised);
-            } else if (_state == State::Busy) {
-                reply_error(generation, Error::Busy);
             } else if (body.empty()) {
                 reply_error(generation, Error::Empty);
             } else if (body.size() > limit) {
@@ -168,6 +217,8 @@ PacketIOStatus PacketLink::send(const std::uint8_t* packet, std::size_t size)
 PacketIOStatus PacketLink::reset()
 {
     _rx.clear();
+    _frontIncomplete = false;
+    _frontStale = false;
     _state = State::Unsynchronised;
     return PacketIOStatus::Ok;
 }
@@ -175,6 +226,12 @@ PacketIOStatus PacketLink::reset()
 PacketLinkChannel::PacketLinkChannel(std::unique_ptr<Channel> stream, std::size_t capacity)
     : _stream(std::move(stream)), _link(*_stream, capacity)
 {
+}
+
+std::unique_ptr<Channel> with_packet_link(bool packet_link, std::unique_ptr<Channel> stream)
+{
+    if (!packet_link || !stream) return stream;
+    return std::make_unique<PacketLinkChannel>(std::move(stream));
 }
 
 } // namespace fujinet::io

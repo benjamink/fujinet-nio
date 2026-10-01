@@ -17,6 +17,7 @@
 #include "fujinet/build/profile.h"
 #include "fujinet/io/core/channel.h"
 #include "fujinet/io/core/io_message.h"
+#include "fujinet/io/core/packet_link.h"
 #include "fujinet/io/devices/virtual_device.h"
 
 using namespace fujinet;
@@ -112,13 +113,12 @@ TEST_CASE("FujinetCore can be embedded with a custom Channel")
 
     // 3) Provide our own Channel implementation. A byte channel carries
     //    native packets only through a packet link.
-    InMemoryChannel channel;
-    if (profile.primaryTransport == build::TransportKind::FujiBusNative) {
-        profile.primaryTransport = build::TransportKind::FujiBusSlip;
-    }
+    std::unique_ptr<io::Channel> channel = io::with_packet_link(
+        profile.primaryTransport == build::TransportKind::FujiBusNative,
+        std::make_unique<InMemoryChannel>());
 
     // 4) Install transports based on the profile.
-    io::ITransport* primary = core::setup_transports(core, channel, profile);
+    io::ITransport* primary = core::setup_transports(core, *channel, profile);
     CHECK(primary != nullptr);
 
     // 5) Register a simple VirtualDevice on some DeviceID.

@@ -67,6 +67,9 @@ struct BuildProfile {
     Machine          machine;
     TransportKind    primaryTransport;
     ChannelKind      primaryChannel;
+    // Carry FujiBusNative packets over a packet link (docs/packet_link.md):
+    // for a byte-stream channel such as a UART from a bridge microcontroller.
+    bool             packetLink{false};
     std::string_view name;
 
     HardwareCapabilities hw;

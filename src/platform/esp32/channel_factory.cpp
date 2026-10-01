@@ -31,7 +31,8 @@ create_channel_for_profile(const build::BuildProfile& profile, const config::Fuj
     case ChannelKind::UsbCdcDevice:
 #if CONFIG_TINYUSB_CDC_ENABLED && CONFIG_FN_FUJIBUS_TRANSPORT_USB_CDC
         FN_ELOG("Using TinyUSB CDC-ACM channel for UsbCdcDevice");
-        return std::make_unique<esp32::UsbCdcChannel>();
+        if (profile.packetLink) FN_ELOG("Carrying FujiBus packets over a packet link");
+        return io::with_packet_link(profile.packetLink, std::make_unique<esp32::UsbCdcChannel>());
 #elif !CONFIG_TINYUSB_CDC_ENABLED
         FN_LOGE(TAG, "UsbCdcDevice selected but TinyUSB CDC is disabled in sdkconfig");
         return nullptr;
@@ -56,12 +57,9 @@ create_channel_for_profile(const build::BuildProfile& profile, const config::Fuj
         FN_ELOG("Using UartChannel for UartGpio (baud=%u, data_bits=%d)",
                 static_cast<unsigned>(config.channel.uart.baudRate),
                 config.channel.uart.dataBits);
-        if (profile.primaryTransport == build::TransportKind::FujiBusNative) {
-            FN_ELOG("Carrying FujiBus packets over a packet link");
-            return std::make_unique<io::PacketLinkChannel>(
-                std::make_unique<esp32::UartChannel>(config.channel.uart));
-        }
-        return std::make_unique<esp32::UartChannel>(config.channel.uart);
+        if (profile.packetLink) FN_ELOG("Carrying FujiBus packets over a packet link");
+        return io::with_packet_link(profile.packetLink,
+                                    std::make_unique<esp32::UartChannel>(config.channel.uart));
 
     case ChannelKind::SioGpio:
 #if defined(FN_BUILD_ATARI_FUJIBUS_SIO)
