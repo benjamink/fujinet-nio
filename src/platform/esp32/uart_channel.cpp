@@ -1,5 +1,6 @@
 #include "fujinet/platform/esp32/uart_channel.h"
 #include "fujinet/core/logging.h"
+#include "fujinet/io/uart_rx_drain.h"
 #include "fujinet/io/uart_tx_pacing.h"
 #include "fujinet/platform/esp32/pinmap.h"
 
@@ -298,37 +299,35 @@ void UartChannel::updateFIFO()
         return;
     }
 
-    uart_event_t event;
+    // A full event queue drops events but not their bytes, so reads take
+    // everything the driver holds rather than what each event announced.
+    struct EspUartRx {
+        using Event = uart_event_t;
+        UartChannel& ch;
 
-    while (xQueueReceive(_uart_queue, &event, 0) == pdTRUE) {
-        process_event(event);
-    }
-    // A full event queue drops events but not their bytes.
-    drain_rx();
-}
+        bool next_event(Event& event)
+        {
+            return xQueueReceive(ch._uart_queue, &event, 0) == pdTRUE;
+        }
+        bool is_data(const Event& event) const { return event.type == UART_DATA; }
+        void handle(const Event& event) { ch.process_event(event); }
+        bool buffered_len(std::size_t& len)
+        {
+            return uart_get_buffered_data_len(ch._uart_port, &len) == ESP_OK;
+        }
+        int read(std::uint8_t* dst, std::size_t len)
+        {
+            return uart_read_bytes(ch._uart_port, dst, len, 0);
+        }
+    };
 
-void UartChannel::drain_rx()
-{
-    std::size_t buffered = 0;
-    if (uart_get_buffered_data_len(_uart_port, &buffered) != ESP_OK || buffered == 0) {
-        return;
-    }
-    const std::size_t old_len = _fifo.size();
-    _fifo.resize(old_len + buffered);
-    int result = uart_read_bytes(_uart_port, &_fifo[old_len], buffered, 0);
-    if (result < 0) {
-        result = 0;
-    }
-    _fifo.resize(old_len + static_cast<std::size_t>(result));
+    EspUartRx rx{*this};
+    io::uart_rx_service(rx, _fifo);
 }
 
 void UartChannel::process_event(const uart_event_t& event)
 {
     switch (event.type) {
-    case UART_DATA:
-        drain_rx();
-        break;
-
     case UART_FIFO_OVF:
         FN_LOGW(TAG, "UART FIFO overflow");
         uart_flush_input(_uart_port);

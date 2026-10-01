@@ -61,7 +61,6 @@ private:
     UartPins selected_pins() const;
     /// Apply `uart_param_config` + `uart_set_pin` for current `_uart_cfg`.
     bool apply_hw_parameters(const UartPins& uart_pins);
-    void drain_rx();
     void process_event(const uart_event_t& event);
     bool _initialized{false};
     config::UartConfig _uart_cfg{};
