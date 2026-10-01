@@ -270,6 +270,7 @@ This wait capability is intentionally optional:
 | POSIX    | `TcpServerChannel` (in `platform/posix/channel_factory.cpp`) |
 | POSIX    | `SerialChannel` (in `platform/posix/channel_factory.cpp`) |
 | ESP32-S3 | `UsbCdcChannel` (in `platform/esp32/usb_cdc_channel.cpp`) |
+| Both     | `PacketLinkChannel` (in `lib/packet_link.cpp`): packet I/O over a stream channel |
 | Future   | WebUSB, emulator pipes |
 
 Channels are platform-specific and discovered via **channel factories**.  
@@ -424,7 +425,9 @@ documented in [`docs/driver_architecture.md`](driver_architecture.md). In
 particular, FujiBus is the logical packet protocol while SLIP is stream
 framing. New high-speed packet-oriented channels should omit SLIP and carry
 complete FujiBus packets with channel-native boundaries, without changing
-DiskDevice commands.
+DiskDevice commands. Where the only wire is a byte stream, such as a UART from a
+bridge microcontroller, the [packet link](packet_link.md) supplies those
+boundaries.
 
 The proposed Amiga floppy-port/Pico channel is documented in
 [`docs/amiga/amiga-floppy-channel.md`](amiga/amiga-floppy-channel.md). It is a channel

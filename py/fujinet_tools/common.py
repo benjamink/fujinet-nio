@@ -25,9 +25,15 @@ def open_serial(port: str | None, baud: int, timeout_s: float):
         raise SystemExit("error: --port/-p is required for this command")
     if serial is None:
         raise RuntimeError("pyserial not available, cannot open serial port")
-    return serial.Serial(
-        port=port, baudrate=baud, timeout=timeout_s, write_timeout=max(1.0, timeout_s)
+    # "link:<port>" carries FujiBus over a packet link (docs/packet_link.md).
+    link = port.startswith("link:")
+    if link:
+        port = port[len("link:") :]
+    ser = serial.serial_for_url(
+        port, baudrate=baud, timeout=timeout_s, write_timeout=max(1.0, timeout_s)
     )
+    ser.fujinet_link = link
+    return ser
 
 
 def status_ok(pkt: Optional[FujiPacket]) -> bool:

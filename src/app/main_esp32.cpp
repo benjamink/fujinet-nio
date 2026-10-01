@@ -173,6 +173,7 @@ extern "C" void fujinet_core_task(void* arg)
     auto modemDiag = fujinet::diag::create_modem_diagnostic_provider(core);
     auto appStoreDiag = fujinet::diag::create_app_store_diagnostic_provider(core);
     std::unique_ptr<fujinet::diag::IDiagnosticProvider> uartChannelDiag;
+    std::unique_ptr<fujinet::diag::IDiagnosticProvider> packetLinkDiag;
     diagRegistry.add_provider(*coreDiag);
     diagRegistry.add_provider(*netDiag);
     diagRegistry.add_provider(*diskDiag);
@@ -279,6 +280,10 @@ extern "C" void fujinet_core_task(void* arg)
     uartChannelDiag = fujinet::diag::create_uart_channel_diagnostic_provider(channel.get(), services.fuji);
     if (uartChannelDiag) {
         diagRegistry.add_provider(*uartChannelDiag);
+    }
+    packetLinkDiag = fujinet::diag::create_packet_link_diagnostic_provider(channel.get(), services.fuji);
+    if (packetLinkDiag) {
+        diagRegistry.add_provider(*packetLinkDiag);
     }
 
     // Set up transports based on profile (FujiBus, SIO, etc.).

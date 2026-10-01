@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "fujinet/io/core/channel.h"
+#include "fujinet/io/core/packet_link.h"
 #include "fujinet/build/profile.h"
 #include "fujinet/config/fuji_config.h"
 #if defined(FN_BUILD_ATARI_FUJIBUS_SIO)
@@ -20,6 +21,21 @@ namespace fujinet::platform {
 
 static constexpr const char* TAG = "platform";
 
+// A profile that asks for a packet link carries its packets over this stream.
+static std::unique_ptr<io::Channel>
+with_packet_link(const build::BuildProfile& profile, const config::FujiConfig& config,
+                 std::unique_ptr<io::Channel> stream)
+{
+    const auto settings = io::packet_link_settings(
+        config.channel.packetLink.capacity, config.channel.packetLink.recordTimeoutMs, false);
+    if (profile.packetLink && stream) {
+        FN_ELOG("Carrying FujiBus packets over a packet link (capacity %u, record timeout %u ms)",
+                static_cast<unsigned>(settings.capacity),
+                static_cast<unsigned>(settings.recordTimeoutMs));
+    }
+    return io::with_packet_link(profile.packetLink, std::move(stream), settings);
+}
+
 std::unique_ptr<fujinet::io::Channel>
 create_channel_for_profile(const build::BuildProfile& profile, const config::FujiConfig& config)
 {
@@ -30,7 +46,7 @@ create_channel_for_profile(const build::BuildProfile& profile, const config::Fuj
     case ChannelKind::UsbCdcDevice:
 #if CONFIG_TINYUSB_CDC_ENABLED && CONFIG_FN_FUJIBUS_TRANSPORT_USB_CDC
         FN_ELOG("Using TinyUSB CDC-ACM channel for UsbCdcDevice");
-        return std::make_unique<esp32::UsbCdcChannel>();
+        return with_packet_link(profile, config, std::make_unique<esp32::UsbCdcChannel>());
 #elif !CONFIG_TINYUSB_CDC_ENABLED
         FN_LOGE(TAG, "UsbCdcDevice selected but TinyUSB CDC is disabled in sdkconfig");
         return nullptr;
@@ -55,7 +71,7 @@ create_channel_for_profile(const build::BuildProfile& profile, const config::Fuj
         FN_ELOG("Using UartChannel for UartGpio (baud=%u, data_bits=%d)",
                 static_cast<unsigned>(config.channel.uart.baudRate),
                 config.channel.uart.dataBits);
-        return std::make_unique<esp32::UartChannel>(config.channel.uart);
+        return with_packet_link(profile, config, std::make_unique<esp32::UartChannel>(config.channel.uart));
 
     case ChannelKind::SioGpio:
 #if defined(FN_BUILD_ATARI_FUJIBUS_SIO)

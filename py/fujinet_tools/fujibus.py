@@ -390,20 +390,45 @@ class FujiBusSession:
         self._ser: Optional[serial.Serial] = None
         self._rx: bytearray = bytearray()
         self._debug: bool = False
+        self._link = None
+        self.link_timeout: float = 5.0
 
     def attach(self, ser: serial.Serial, *, debug: bool = False) -> "FujiBusSession":
         self._ser = ser
         self._debug = debug
+        if getattr(ser, "fujinet_link", False):
+            from .packetlink import Controller
+
+            self._link = Controller(ser)
+            self._link.sync()
         return self
 
     def stash(self, pkt: FujiPacket) -> None:
         self._stash[(pkt.device, pkt.command)].append(pkt)
 
     def send_command(
-        self, device: int, command: int, payload: bytes, *, cmd_txt: str = ""
+        self,
+        device: int,
+        command: int,
+        payload: bytes,
+        *,
+        cmd_txt: str = "",
+        timeout: Optional[float] = None,
     ) -> None:
         if self._ser is None:
             raise RuntimeError("FujiBusSession is not attached to a serial port")
+
+        if self._link is not None:
+            raw = build_fuji_packet_decoded(device, command, payload)
+            if self._debug:
+                print_packet(f"Outgoing request{(' ' + cmd_txt) if cmd_txt else ''}", raw)
+            answer = self._link.exchange(
+                raw, timeout=self.link_timeout if timeout is None else timeout
+            )
+            resp = parse_fuji_packet(answer) if answer else None
+            if resp is not None:
+                self.stash(resp)
+            return
 
         pkt = build_fuji_packet(device, command, payload)
         if self._debug:
@@ -463,7 +488,10 @@ class FujiBusSession:
         if hit is not None:
             return hit
 
-        self.send_command(device, command, payload, cmd_txt=cmd_txt)
+        self.send_command(device, command, payload, cmd_txt=cmd_txt, timeout=timeout)
+        if self._link is not None:
+            # The exchange has already waited for the answer, or given up.
+            return self.pop_matching(expect_device, expect_command, accept=accept)
 
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -495,6 +523,10 @@ class FujiBusSession:
         return None
 
     def _read_one_packet(self, deadline: float) -> Optional[FujiPacket]:
+        if self._link is not None:
+            # Link answers arrive in send_command; nothing comes unasked.
+            time.sleep(0.001)
+            return None
         frame = self._read_one_slip_frame(deadline)
         if frame is None:
             return None

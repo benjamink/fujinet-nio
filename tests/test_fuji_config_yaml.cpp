@@ -82,6 +82,8 @@ bool configs_equal(const FujiConfig& a, const FujiConfig& b)
     if (a.channel.uart.txByteGapUs != b.channel.uart.txByteGapUs) return false;
     if (a.channel.uart.txChunkSize != b.channel.uart.txChunkSize) return false;
     if (a.channel.uart.txChunkGapUs != b.channel.uart.txChunkGapUs) return false;
+    if (a.channel.packetLink.capacity != b.channel.packetLink.capacity) return false;
+    if (a.channel.packetLink.recordTimeoutMs != b.channel.packetLink.recordTimeoutMs) return false;
 
     return true;
 }
@@ -161,6 +163,10 @@ netsio:
 clock:
   timezone: "Europe/London"
   enabled: true
+channel:
+  packet_link:
+    capacity: 2048
+    record_timeout_ms: 1500
 )";
 
     create_file(*primary, "/fujinet.yaml", yaml);
@@ -187,6 +193,8 @@ clock:
     CHECK(cfg.netsio.host == "netsio.example");
     CHECK(cfg.netsio.port == 9998);
     CHECK(cfg.clock.timezone == "Europe/London");
+    CHECK(cfg.channel.packetLink.capacity == 2048);
+    CHECK(cfg.channel.packetLink.recordTimeoutMs == 1500);
 }
 
 TEST_CASE("YamlFujiConfigStoreFs: Load from backup when primary missing")
@@ -366,6 +374,8 @@ TEST_CASE("YamlFujiConfigStoreFs: Round-trip save and load")
     original.cpm.enabled = true;
     original.cpm.ccpImage = "/cpm/ccp.img";
     original.printer.enabled = true;
+    original.channel.packetLink.capacity = 1024;
+    original.channel.packetLink.recordTimeoutMs = 2500;
 
     store.save(original);
 

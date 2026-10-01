@@ -36,6 +36,20 @@ TEST_CASE("current build profile maps Zorro preset to FujiBusNative")
     CHECK(profile.machine == build::Machine::Generic);
     CHECK(profile.primaryTransport == build::TransportKind::FujiBusNative);
     CHECK(profile.name == "Zorro + FujiBus over packet-native channel (stub)");
+    CHECK_FALSE(profile.packetLink); // the PTY placeholder stays without packet I/O
+#else
+    CHECK(true);
+#endif
+}
+
+TEST_CASE("current build profile maps the packet-link TCP preset to FujiBusNative over TCP")
+{
+#if defined(FN_BUILD_FUJIBUS_LINK_TCP)
+    const auto profile = build::current_build_profile();
+    CHECK(profile.machine == build::Machine::Generic);
+    CHECK(profile.primaryTransport == build::TransportKind::FujiBusNative);
+    CHECK(profile.primaryChannel == build::ChannelKind::TcpSocket);
+    CHECK(profile.packetLink);
 #else
     CHECK(true);
 #endif

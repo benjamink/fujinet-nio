@@ -83,6 +83,11 @@ workload. Before approval, select one of:
 
 Version 1 must choose one. It must not silently truncate or stream raw packets.
 
+The [packet link](../../../docs/packet_link.md), the byte-stream profile of this
+ABI for UART-connected bridges, proposes the first option: a fixed capacity per
+peer, reported to the controller when a generation starts, with `Oversized`
+for larger requests.
+
 ## Link session, ownership, and completion
 
 The RP2350 is the link-session controller. It owns the transition into a new
@@ -160,6 +165,11 @@ The concrete representation is a **review decision C2**. It may be a reset
 counter/token exchanged in a control transaction, or an equivalent explicit
 synchronization handshake. It must not depend solely on boot order, elapsed
 time, an empty local queue, or a GPIO level read once.
+
+The [packet link](../../../docs/packet_link.md) proposes one: a controller-chosen
+generation in a Sync record, carrying the controller's link version, answered by
+a SyncAck carrying the agreed version and the peer's capacity. The version
+field is also the extension point the approval checklist asks for.
 
 L6 establishes that a stale error can be retired across an RP2350 RAM reload.
 L7 establishes controlled peer restart detection at a stable boundary. They

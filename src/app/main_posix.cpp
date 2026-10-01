@@ -284,6 +284,10 @@ int main()
         FN_LOGE(TAG, "Failed to create Channel for profile");
         return 1;
     }
+    auto packetLinkDiag = fujinet::diag::create_packet_link_diagnostic_provider(channel.get(), fujiConcrete);
+    if (packetLinkDiag) {
+        diagRegistry.add_provider(*packetLinkDiag);
+    }
     core::setup_transports(core, *channel, profile, &config);
 
     const auto idleDelay = posix_idle_delay(profile);

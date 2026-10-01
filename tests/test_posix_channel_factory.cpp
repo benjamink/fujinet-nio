@@ -2,6 +2,7 @@
 
 #include "fujinet/build/profile.h"
 #include "fujinet/config/fuji_config.h"
+#include "fujinet/io/core/packet_link.h"
 #include "fujinet/platform/channel_factory.h"
 
 #if defined(FN_PLATFORM_POSIX) && !defined(_WIN32)
@@ -98,6 +99,50 @@ TEST_CASE("POSIX channel factory creates TCP server channel")
     auto channel = platform::create_channel_for_profile(profile_for(build::ChannelKind::TcpSocket), cfg);
     REQUIRE(channel != nullptr);
     CHECK(!channel->available());
+}
+
+TEST_CASE("POSIX channel factory adds a packet link only when the profile asks for one")
+{
+    config::FujiConfig cfg{};
+    cfg.channel.tcpHost = "127.0.0.1";
+    cfg.channel.tcpPort = 0;
+
+    auto linked_profile = profile_for(build::ChannelKind::TcpSocket, build::TransportKind::FujiBusNative);
+    linked_profile.packetLink = true;
+    auto linked = platform::create_channel_for_profile(linked_profile, cfg);
+    REQUIRE(linked != nullptr);
+    CHECK(linked->packet_io() != nullptr);
+
+    // FujiBusNative alone doesn't imply a link: a profile must ask for it.
+    auto native = platform::create_channel_for_profile(
+        profile_for(build::ChannelKind::TcpSocket, build::TransportKind::FujiBusNative), cfg);
+    REQUIRE(native != nullptr);
+    CHECK(native->packet_io() == nullptr);
+    // The link waits on its stream exactly as the stream itself would.
+    CHECK(linked->supports_readable_wait() == native->supports_readable_wait());
+}
+
+TEST_CASE("POSIX channel factory applies packet_link settings, with a longer automatic timeout on TCP")
+{
+    config::FujiConfig cfg{};
+    cfg.channel.tcpHost = "127.0.0.1";
+    cfg.channel.tcpPort = 0;
+    auto profile = profile_for(build::ChannelKind::TcpSocket, build::TransportKind::FujiBusNative);
+    profile.packetLink = true;
+
+    auto automatic = platform::create_channel_for_profile(profile, cfg);
+    auto* autoLink = dynamic_cast<io::PacketLinkChannel*>(automatic.get());
+    REQUIRE(autoLink != nullptr);
+    CHECK(autoLink->link().capacity() == io::PacketLink::kDefaultCapacity);
+    CHECK(autoLink->link().record_timeout_ms() == io::PacketLink::kDefaultNetworkRecordTimeoutMs);
+
+    cfg.channel.packetLink.capacity = 2048;
+    cfg.channel.packetLink.recordTimeoutMs = 300;
+    auto configured = platform::create_channel_for_profile(profile, cfg);
+    auto* link = dynamic_cast<io::PacketLinkChannel*>(configured.get());
+    REQUIRE(link != nullptr);
+    CHECK(link->link().capacity() == 2048);
+    CHECK(link->link().record_timeout_ms() == 300);
 }
 
 TEST_CASE("POSIX TCP channel retains readable bytes after peer half-close")

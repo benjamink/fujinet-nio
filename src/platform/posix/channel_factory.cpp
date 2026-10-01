@@ -3,6 +3,7 @@
 #include "fujinet/build/profile.h"
 #include "fujinet/config/fuji_config.h"
 #include "fujinet/io/core/channel.h"
+#include "fujinet/io/core/packet_link.h"
 #include "fujinet/platform/posix/atari_netsio_fujibus_channel.h"
 #include "fujinet/platform/posix/pty_channel.h"
 #include "fujinet/platform/posix/serial_channel.h"
@@ -16,6 +17,21 @@
 #if !defined(_WIN32)
 
 namespace fujinet::platform {
+
+// A profile that asks for a packet link carries its packets over this stream.
+// `networked`: TCP can stall in transit, so its default record timeout is longer.
+static std::unique_ptr<fujinet::io::Channel>
+with_packet_link(const build::BuildProfile& profile, const config::FujiConfig& config,
+                 std::unique_ptr<fujinet::io::Channel> stream, bool networked)
+{
+    const auto settings = fujinet::io::packet_link_settings(
+        config.channel.packetLink.capacity, config.channel.packetLink.recordTimeoutMs, networked);
+    if (profile.packetLink && stream) {
+        std::cout << "[ChannelFactory] Carrying FujiBus packets over a packet link (capacity "
+                  << settings.capacity << ", record timeout " << settings.recordTimeoutMs << " ms).\n";
+    }
+    return fujinet::io::with_packet_link(profile.packetLink, std::move(stream), settings);
+}
 
 std::unique_ptr<fujinet::io::Channel>
 create_channel_for_profile(const build::BuildProfile& profile, const config::FujiConfig& config)
@@ -34,7 +50,9 @@ create_channel_for_profile(const build::BuildProfile& profile, const config::Fuj
     case ChannelKind::TcpSocket:
         std::cout << "[ChannelFactory] Using TCP server channel (TcpSocket) on "
                   << config.channel.tcpHost << ":" << config.channel.tcpPort << std::endl;
-        return posix::create_tcp_server_channel(config.channel.tcpHost, config.channel.tcpPort);
+        return with_packet_link(profile, config,
+            posix::create_tcp_server_channel(config.channel.tcpHost, config.channel.tcpPort),
+            true);
 
     case ChannelKind::UdpSocket: {
         const std::string host = config.netsio.host;
@@ -62,7 +80,7 @@ create_channel_for_profile(const build::BuildProfile& profile, const config::Fuj
 
     case ChannelKind::SerialPort:
         std::cout << "[ChannelFactory] Using RS-232 serial channel.\n";
-        return posix::create_serial_channel(config);
+        return with_packet_link(profile, config, posix::create_serial_channel(config), false);
     }
 
     std::cout << "[ChannelFactory] Unknown ChannelKind.\n";

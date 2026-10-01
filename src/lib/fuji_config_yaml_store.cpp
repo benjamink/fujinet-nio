@@ -182,6 +182,12 @@ static void from_yaml(const YAML::Node& node, UartConfig& out)
     out.txChunkGapUs = static_cast<std::uint32_t>(get_or<int>(node, "tx_chunk_gap_us", 2000));
 }
 
+static void from_yaml(const YAML::Node& node, PacketLinkConfig& out)
+{
+    out.capacity        = static_cast<std::uint32_t>(get_or<int>(node, "capacity", 0));
+    out.recordTimeoutMs = static_cast<std::uint32_t>(get_or<int>(node, "record_timeout_ms", 0));
+}
+
 static void from_yaml(const YAML::Node& node, ChannelConfig& out)
 {
     out.ptyPath = get_or<std::string>(node, "pty_path", "");
@@ -191,6 +197,11 @@ static void from_yaml(const YAML::Node& node, ChannelConfig& out)
     if (auto u = node["uart"]) {
         if (u.IsMap()) {
             from_yaml(u, out.uart);
+        }
+    }
+    if (auto l = node["packet_link"]) {
+        if (l.IsMap()) {
+            from_yaml(l, out.packetLink);
         }
     }
     // Legacy flat key (still honored so older configs work)
@@ -308,6 +319,10 @@ static void to_yaml(YAML::Emitter& out, const FujiConfig& cfg)
      out << YAML::Key << "tx_chunk_size"    << YAML::Value << cfg.channel.uart.txChunkSize;
      out << YAML::Key << "tx_chunk_gap_us"  << YAML::Value << cfg.channel.uart.txChunkGapUs;
      out << YAML::EndMap; // uart
+     out << YAML::Key << "packet_link" << YAML::Value << YAML::BeginMap;
+     out << YAML::Key << "capacity"          << YAML::Value << cfg.channel.packetLink.capacity;
+     out << YAML::Key << "record_timeout_ms" << YAML::Value << cfg.channel.packetLink.recordTimeoutMs;
+     out << YAML::EndMap; // packet_link
      out << YAML::EndMap;
 
     out << YAML::EndMap; // root

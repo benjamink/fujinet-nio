@@ -29,7 +29,11 @@ Typical invocation:
 ./scripts/fujinet --port /dev/ttyACM1 net ...
 ```
 
-Adjust `--port`, `--baud`, and `--debug` as required for your setup.
+Adjust `--port`, `--baud`, and `--debug` as required for your setup. `--port`
+also takes a pyserial URL such as `socket://127.0.0.1:65504`; prefix it with
+`link:` to reach NIO over a [packet link](packet_link.md), for example
+`--port link:socket://127.0.0.1:65504` against the `fujibus-link-tcp-debug`
+build.
 
 ---
 

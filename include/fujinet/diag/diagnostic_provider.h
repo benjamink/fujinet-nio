@@ -62,7 +62,14 @@ std::unique_ptr<IDiagnosticProvider> create_modem_diagnostic_provider(::fujinet:
 // Application storage provider: namespaced key/value inspection and maintenance.
 std::unique_ptr<IDiagnosticProvider> create_app_store_diagnostic_provider(::fujinet::core::FujinetCore& core);
 
+// Packet link (docs/packet_link.md): state, counters and settings. Returns
+// nullptr unless `channel` is a PacketLinkChannel.
+std::unique_ptr<IDiagnosticProvider> create_packet_link_diagnostic_provider(
+    ::fujinet::io::Channel* channel,
+    ::fujinet::io::FujiDevice* fuji);
+
 // ESP32 UartChannel: inspect/change host UART (FujiBus) settings. Returns nullptr on POSIX or non-UART channel.
+// Also found beneath a packet link.
 std::unique_ptr<IDiagnosticProvider> create_uart_channel_diagnostic_provider(
     ::fujinet::io::Channel* channel,
     ::fujinet::io::FujiDevice* fuji);

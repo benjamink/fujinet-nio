@@ -111,6 +111,7 @@ CMake (`CMakeLists_posix.cmake`) selects one file via an `if/elseif/else` block:
 | `atari_pty.cpp` | `FN_BUILD_ATARI_PTY` | `SIO` | `Pty` |
 | `atari_netsio.cpp` | `FN_BUILD_ATARI_NETSIO` | `SIO` | `UdpSocket` |
 | `atari_fujibus_netsio.cpp` | `FN_BUILD_ATARI_FUJIBUS_NETSIO` | `FujiBusSlip` | `UdpSocket` |
+| `fujibus_link_tcp.cpp` | `FN_BUILD_FUJIBUS_LINK_TCP` | `FujiBusNative` | `TcpSocket` (packet link) |
 | `zorro.cpp` | `FN_BUILD_ZORRO` | `FujiBusNative` | `Pty` (stub) |
 | `default.cpp` | *(none)* | `FujiBusSlip` | `Pty` |
 
@@ -450,6 +451,20 @@ Currently supported profiles:
   - `primaryChannel   = ChannelKind::UdpSocket`
   - POSIX build where an Atari host speaks FujiBus (not legacy SIO) over a NetSIO bridge.
   - CMake preset: `atari-fujibus-netsio-debug`
+
+- `FN_BUILD_FUJIBUS_LINK_TCP`
+  - `machine          = Machine::Generic`
+  - `primaryTransport = TransportKind::FujiBusNative`
+  - `primaryChannel   = ChannelKind::TcpSocket`
+  - POSIX build that carries raw FujiBus packets over a [packet link](packet_link.md)
+    on TCP, for emulators and tools that play the part of a bridge microcontroller.
+  - CMake preset: `fujibus-link-tcp-debug`
+
+A profile carries `FujiBusNative` over a byte-stream channel by setting
+`packetLink = true`; the channel factory then wraps the stream in
+`io::PacketLinkChannel` (TCP or serial on POSIX, UART or USB CDC on ESP32).
+`FujiBusNative` alone doesn't imply a link: the Zorro placeholder leaves it
+unset, so its Pty has no packet I/O and native bootstrap rejects it, as before.
 
 - `FN_BUILD_ZORRO`
   - `machine          = Machine::Generic`
