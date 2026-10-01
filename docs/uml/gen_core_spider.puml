@@ -1044,6 +1044,23 @@ __
 -_scanCache : std::vector<net::WifiScanRecord>
 -_scanCacheValid : bool
 }
+class "io::PacketLinkChannel" as C_0015820303725027571997
+class C_0015820303725027571997 {
++PacketLinkChannel(std::unique_ptr<Channel> stream, std::size_t capacity = PacketLink::kDefaultCapacity) : void
++PacketLinkChannel(std::unique_ptr<Channel> stream, const PacketLinkSettings & settings) : void
+..
++available() : bool
++link() : PacketLink &
++packet_io() : IPacketIO *
++read(std::uint8_t *, std::size_t) : std::size_t
++stream() : Channel &
++supports_readable_wait() const : bool
++wait_for_readable(std::chrono::milliseconds timeout) : bool
++write(const std::uint8_t *, std::size_t) : void
+__
+-_link : PacketLink
+-_stream : std::unique_ptr<Channel>
+}
 class "io::ModemDevice" as C_0012713930330229444348
 class C_0012713930330229444348 {
 +ModemDevice(net::ITcpSocketOps & socketOps) : void
@@ -1243,6 +1260,7 @@ __
 class "config::ChannelConfig" as C_0014601375190208620155
 class C_0014601375190208620155 {
 __
++packetLink : PacketLinkConfig
 +ptyPath : std::string
 +serialPort : std::string
 +tcpHost : std::string
@@ -1396,6 +1414,20 @@ class C_0010263522683166994737 {
 __
 -_mutex : std::mutex
 -_providers : std::vector<IDiagnosticProvider *>
+}
+class "diag::PacketLinkDiagnosticProvider" as C_0004378769567626399740
+class C_0004378769567626399740 {
++PacketLinkDiagnosticProvider(io::PacketLinkChannel & channel, io::FujiDevice * fuji) : void
+..
+-cmd_save() : DiagResult
+-cmd_set(const DiagArgsView & args) : DiagResult
+-cmd_status() : DiagResult
++execute(const DiagArgsView & args) : DiagResult
++list_commands(std::vector<DiagCommandSpec> & out) const : void
++provider_id() const noexcept : std::string_view
+__
+-_channel : io::PacketLinkChannel &
+-_fuji : io::FujiDevice *
 }
 class "diag::ModemDiagnosticProvider" as C_0004415785026504276688
 class C_0004415785026504276688 {
@@ -1912,6 +1944,8 @@ C_0008827731424709454558 ..> C_0002942984525013396621
 C_0008827731424709454558 o-- C_0001833966047295824140 : -_controller
 C_0008827731424709454558 o-- C_0004628671242044821433 : -_scanCache
 C_0010069830097413987109 <|-- C_0008827731424709454558
+C_0015820303725027571997 o-- C_0008542343802949846318 : -_stream
+C_0008542343802949846318 <|-- C_0015820303725027571997
 C_0012713930330229444348 ..> C_0002386736627821114488
 C_0012713930330229444348 ..> C_0002942984525013396621
 C_0012713930330229444348 ..> C_0012496700434923238249
@@ -1977,6 +2011,12 @@ C_0010263522683166994737 ..> C_0014265545497805753192
 C_0010263522683166994737 ..> C_0018340176854803608744
 C_0010263522683166994737 ..> C_0011046427244206106114
 C_0010263522683166994737 --> C_0007944674237235781138 : -_providers
+C_0004378769567626399740 ..> C_0014265545497805753192
+C_0004378769567626399740 ..> C_0018340176854803608744
+C_0004378769567626399740 ..> C_0011046427244206106114
+C_0004378769567626399740 --> C_0015820303725027571997 : -_channel
+C_0004378769567626399740 --> C_0016024516082849980408 : -_fuji
+C_0007944674237235781138 <|-- C_0004378769567626399740
 C_0004415785026504276688 ..> C_0014265545497805753192
 C_0004415785026504276688 ..> C_0018340176854803608744
 C_0004415785026504276688 ..> C_0011046427244206106114

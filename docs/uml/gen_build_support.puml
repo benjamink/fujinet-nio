@@ -55,6 +55,7 @@ __
 +hw : HardwareCapabilities
 +machine : Machine
 +name : std::string_view
++packetLink : bool
 +primaryChannel : ChannelKind
 +primaryTransport : TransportKind
 }

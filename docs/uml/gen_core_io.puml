@@ -898,6 +898,106 @@ __
 -_scanCache : std::vector<net::WifiScanRecord>
 -_scanCacheValid : bool
 }
+class "io::PacketLink" as C_0013870401060010926597
+class C_0013870401060010926597 {
++PacketLink(Channel & stream, std::size_t capacity = kDefaultCapacity, Clock now = = {}, std::uint32_t recordTimeoutMs = kDefaultRecordTimeoutMs) : void
+..
+-abandon_front() : void
+{static} +crc32(const std::uint8_t * data, std::size_t size, std::uint32_t crc = 0) : std::uint32_t
+-drop_front(std::size_t n) : void
+{static} +encode(Kind kind, std::uint8_t generation, const std::uint8_t * body, std::size_t size) : std::vector<std::uint8_t>
+-fill() : void
+-front_expired() const : bool
++generation() const : std::uint8_t
++receive(std::uint8_t * buffer, std::size_t capacity) : PacketReceiveResult
++record_timeout_ms() const : std::uint32_t
+-reply(Kind kind, std::uint8_t generation, const std::uint8_t * body = nullptr, std::size_t size = 0) : void
+-reply_error(std::uint8_t generation, Error e) : void
++reset() : PacketIOStatus
++send(const std::uint8_t * packet, std::size_t size) : PacketIOStatus
++set_record_timeout_ms(std::uint32_t ms) : void
++state_name() const : std::string_view
++stats() const : const Stats &
+-sync(std::uint8_t generation, const std::vector<std::uint8_t> & body) : void
++version() const : std::uint8_t
++wait_for_readable(std::chrono::milliseconds timeout) : bool
+__
+-_frontIncomplete : bool
+-_frontStale : bool
+-_generation : std::uint8_t
+-_lastByteMs : std::uint64_t
+-_now : Clock
+-_recordTimeoutMs : std::uint32_t
+-_rx : std::vector<std::uint8_t>
+-_state : State
+-_stats : Stats
+-_stream : Channel &
+-_version : std::uint8_t
+{static} +kDefaultCapacity : const std::size_t
+{static} +kDefaultNetworkRecordTimeoutMs : const std::uint32_t
+{static} +kDefaultRecordTimeoutMs : const std::uint32_t
+{static} +kMaxCapacity : const std::size_t
+{static} +kMaxRecordTimeoutMs : const std::uint32_t
+{static} +kMinCapacity : const std::size_t
+{static} +kVersion : const std::uint8_t
+}
+enum "io::PacketLink::Kind" as C_0012179012698682744714
+enum C_0012179012698682744714 {
+Packet
+Error
+Sync
+SyncAck
+}
+enum "io::PacketLink::Error" as C_0000147383891293546660
+enum C_0000147383891293546660 {
+Corrupt
+Oversized
+NotSynchronised
+Empty
+Unanswered
+UnsupportedVersion
+}
+class "io::PacketLink::Stats" as C_0017626614187356801836
+class C_0017626614187356801836 {
+__
++abandoned : std::uint32_t
++answers : std::uint32_t
++corrupt : std::uint32_t
++oversized : std::uint32_t
++refused : std::uint32_t
++requests : std::uint32_t
++syncs : std::uint32_t
++unanswered : std::uint32_t
+}
+enum "io::PacketLink::State" as C_0010892791376385027195
+enum C_0010892791376385027195 {
+Unsynchronised
+Idle
+Busy
+}
+class "io::PacketLinkSettings" as C_0012002532516976559458
+class C_0012002532516976559458 {
+__
++capacity : std::size_t
++recordTimeoutMs : std::uint32_t
+}
+class "io::PacketLinkChannel" as C_0015820303725027571997
+class C_0015820303725027571997 {
++PacketLinkChannel(std::unique_ptr<Channel> stream, std::size_t capacity = PacketLink::kDefaultCapacity) : void
++PacketLinkChannel(std::unique_ptr<Channel> stream, const PacketLinkSettings & settings) : void
+..
++available() : bool
++link() : PacketLink &
++packet_io() : IPacketIO *
++read(std::uint8_t *, std::size_t) : std::size_t
++stream() : Channel &
++supports_readable_wait() const : bool
++wait_for_readable(std::chrono::milliseconds timeout) : bool
++write(const std::uint8_t *, std::size_t) : void
+__
+-_link : PacketLink
+-_stream : std::unique_ptr<Channel>
+}
 class "io::ModemDevice" as C_0012713930330229444348
 class C_0012713930330229444348 {
 +ModemDevice(net::ITcpSocketOps & socketOps) : void
@@ -1299,6 +1399,22 @@ C_0008827731424709454558 ..> C_0002386736627821114488
 C_0008827731424709454558 ..> C_0002942984525013396621
 C_0008827731424709454558 o-- C_0001833966047295824140 : -_controller
 C_0010069830097413987109 <|-- C_0008827731424709454558
+C_0013870401060010926597 ..> C_0003979666872226595970
+C_0013870401060010926597 ..> C_0016227092951652919912
+C_0013870401060010926597 ..> C_0012179012698682744714
+C_0013870401060010926597 ..> C_0000147383891293546660
+C_0013870401060010926597 --> C_0008542343802949846318 : -_stream
+C_0013870401060010926597 o-- C_0010892791376385027195 : -_state
+C_0013870401060010926597 o-- C_0017626614187356801836 : -_stats
+C_0007926727942175438825 <|-- C_0013870401060010926597
+C_0012179012698682744714 --+ C_0013870401060010926597
+C_0000147383891293546660 --+ C_0013870401060010926597
+C_0017626614187356801836 --+ C_0013870401060010926597
+C_0010892791376385027195 --+ C_0013870401060010926597
+C_0015820303725027571997 ..> C_0012002532516976559458
+C_0015820303725027571997 ..> C_0007926727942175438825
+C_0015820303725027571997 o-- C_0013870401060010926597 : -_link
+C_0008542343802949846318 <|-- C_0015820303725027571997
 C_0012713930330229444348 ..> C_0002386736627821114488
 C_0012713930330229444348 ..> C_0002942984525013396621
 C_0012713930330229444348 ..> C_0012496700434923238249
