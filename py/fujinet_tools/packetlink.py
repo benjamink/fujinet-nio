@@ -16,9 +16,16 @@ HEADER = 6
 CRC = 4
 
 VERSION = 1
-# The peer abandons a half-received record after 100 ms without bytes; a
-# controller stays quiet a little longer than that before every Sync.
-RESYNC_QUIET_S = 0.12
+
+# The peer abandons a half-received record after its record timeout passes
+# without bytes. A controller stays quiet a little longer than that before
+# every Sync: the timeout the peer last advertised in SyncAck, or the default
+# before the first one, doubling each time a Sync goes unanswered in case the
+# peer is configured for longer.
+DEFAULT_RECORD_TIMEOUT_MS = 100
+QUIET_MARGIN = 1.2
+MAX_QUIET_S = 5.0
+SYNC_ATTEMPT_S = 0.5  # the least time to wait for one SyncAck
 
 KIND_PACKET = 0x01
 KIND_ERROR = 0x02
@@ -90,6 +97,11 @@ class Controller:
         self.generation = generation & 0xFF
         self.version: Optional[int] = None  # agreed in SyncAck
         self.capacity: Optional[int] = None  # the peer's raw-packet capacity
+        self.record_timeout_ms: Optional[int] = None  # last advertised by the peer
+
+    def _quiet_s(self) -> float:
+        ms = self.record_timeout_ms or DEFAULT_RECORD_TIMEOUT_MS
+        return min(MAX_QUIET_S, ms * QUIET_MARGIN / 1000.0)
 
     def _read_record(self, deadline: float) -> Optional[Record]:
         while time.monotonic() < deadline:
@@ -101,30 +113,42 @@ class Controller:
                 self._rx.extend(chunk)
         return None
 
-    def sync(self, timeout: float = 2.0) -> None:
-        self.generation = (self.generation + 1) & 0xFF
-        self.version = self.capacity = None
-        # Quiet first, so the peer abandons anything half received.
-        time.sleep(RESYNC_QUIET_S)
-        self._rx.clear()
-        self._port.write(encode(KIND_SYNC, self.generation, bytes([VERSION])))
-        self._port.flush()
-        deadline = time.monotonic() + timeout
+    def sync(self, timeout: float = 10.0) -> None:
+        """Start a new generation; raises LinkError if the peer never agrees."""
+        give_up = time.monotonic() + timeout
+        quiet = self._quiet_s()
         while True:
-            rec = self._read_record(deadline)
-            if rec is None:
+            self.generation = (self.generation + 1) & 0xFF
+            self.version = self.capacity = None
+            # Quiet first, so the peer abandons anything half received.
+            time.sleep(quiet)
+            self._rx.clear()
+            self._port.write(encode(KIND_SYNC, self.generation, bytes([VERSION])))
+            self._port.flush()
+            attempt_end = min(give_up, time.monotonic() + max(SYNC_ATTEMPT_S, 2 * quiet))
+            while True:
+                rec = self._read_record(attempt_end)
+                if rec is None:
+                    break
+                if rec.generation != self.generation:
+                    continue
+                if rec.kind == KIND_ERROR:
+                    code = rec.body[0] if rec.body else 0
+                    raise LinkError(f"peer refused Sync: {ERRORS.get(code, code)}")
+                if rec.kind == KIND_SYNC_ACK:
+                    self._accept_sync_ack(rec.body)
+                    return
+            if time.monotonic() >= give_up:
                 raise LinkError("no SyncAck from the peer")
-            if rec.generation != self.generation:
-                continue
-            if rec.kind == KIND_ERROR:
-                code = rec.body[0] if rec.body else 0
-                raise LinkError(f"peer refused Sync: {ERRORS.get(code, code)}")
-            if rec.kind == KIND_SYNC_ACK:
-                if len(rec.body) < 3 or rec.body[0] == 0 or rec.body[0] > VERSION:
-                    raise LinkError(f"unusable SyncAck {rec.body.hex()}")
-                self.version = rec.body[0]
-                self.capacity = rec.body[1] | (rec.body[2] << 8)
-                return
+            quiet = min(MAX_QUIET_S, quiet * 2)
+
+    def _accept_sync_ack(self, body: bytes) -> None:
+        # version, capacity (u16), record timeout in ms (u16); later fields ignored.
+        if len(body) < 5 or body[0] == 0 or body[0] > VERSION:
+            raise LinkError(f"unusable SyncAck {body.hex()}")
+        self.version = body[0]
+        self.capacity = body[1] | (body[2] << 8)
+        self.record_timeout_ms = body[3] | (body[4] << 8)
 
     def exchange(self, packet: bytes, timeout: float) -> Optional[bytes]:
         """One request; the response packet, or None after an unknown completion

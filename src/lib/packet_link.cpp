@@ -19,12 +19,43 @@ std::uint64_t steady_ms()
         std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
+std::uint32_t clamp_record_timeout(std::uint32_t ms)
+{
+    return std::clamp<std::uint32_t>(ms, 1, PacketLink::kMaxRecordTimeoutMs);
+}
+
 } // namespace
 
-PacketLink::PacketLink(Channel& stream, std::size_t capacity, Clock now)
-    : IPacketIO(capacity), _stream(stream), _now(now ? std::move(now) : Clock(steady_ms))
+PacketLink::PacketLink(Channel& stream, std::size_t capacity, Clock now, std::uint32_t recordTimeoutMs)
+    : IPacketIO(capacity)
+    , _stream(stream)
+    , _now(now ? std::move(now) : Clock(steady_ms))
+    , _recordTimeoutMs(clamp_record_timeout(recordTimeoutMs))
 {
     _rx.reserve(kHeader + capacity + kCrc);
+}
+
+void PacketLink::set_record_timeout_ms(std::uint32_t ms)
+{
+    _recordTimeoutMs = clamp_record_timeout(ms);
+}
+
+std::string_view PacketLink::state_name() const
+{
+    switch (_state) {
+    case State::Idle: return "idle";
+    case State::Busy: return "request outstanding";
+    case State::Unsynchronised:
+    default: return "unsynchronised";
+    }
+}
+
+bool PacketLink::wait_for_readable(std::chrono::milliseconds timeout)
+{
+    const std::uint64_t started = _now();
+    const bool ready = _stream.wait_for_readable(timeout);
+    if (_frontIncomplete && _now() - started >= _recordTimeoutMs) _frontStale = true;
+    return ready;
 }
 
 std::uint32_t PacketLink::crc32(const std::uint8_t* data, std::size_t size, std::uint32_t crc)
@@ -77,20 +108,16 @@ void PacketLink::fill()
     while (_rx.size() < limit && _stream.available()) {
         const std::size_t n = _stream.read(chunk, std::min(sizeof(chunk), limit - _rx.size()));
         if (n == 0) break;
-        const std::uint64_t now = _now();
-        // A gap of kRecordTimeoutMs ends an incomplete record even if nothing
-        // polled during it, so a controller's quiet pause before Sync works
-        // while NIO is blocked waiting for input.
-        if (_frontIncomplete && now - _lastByteMs >= kRecordTimeoutMs) _frontStale = true;
-        _frontIncomplete = false;
         _rx.insert(_rx.end(), chunk, chunk + n);
-        _lastByteMs = now;
+        // Reading late after a busy spell refreshes this too, so time spent
+        // busy is never mistaken for a gap (see wait_for_readable).
+        _lastByteMs = _now();
     }
 }
 
 bool PacketLink::front_expired() const
 {
-    return _frontStale || _now() - _lastByteMs >= kRecordTimeoutMs;
+    return _frontStale || _now() - _lastByteMs >= _recordTimeoutMs;
 }
 
 void PacketLink::drop_front(std::size_t n)
@@ -99,21 +126,32 @@ void PacketLink::drop_front(std::size_t n)
     _frontStale = false;
 }
 
+void PacketLink::abandon_front()
+{
+    ++_stats.abandoned;
+    drop_front(2);
+}
+
 void PacketLink::sync(std::uint8_t generation, const std::vector<std::uint8_t>& body)
 {
     // Whatever the outcome, the controller has abandoned the old generation.
     _state = State::Unsynchronised;
     if (body.empty() || body[0] == 0) {
+        ++_stats.refused;
         reply_error(generation, Error::UnsupportedVersion);
         return;
     }
     _generation = generation;
+    _version = std::min(body[0], kVersion);
     _state = State::Idle;
-    const std::size_t cap = std::min<std::size_t>(capacity(), 0xFFFF);
+    ++_stats.syncs;
+    const std::size_t cap = std::min(capacity(), kMaxCapacity);
     const std::uint8_t ack[] = {
-        std::min(body[0], kVersion),
+        _version,
         static_cast<std::uint8_t>(cap),
         static_cast<std::uint8_t>(cap >> 8),
+        static_cast<std::uint8_t>(_recordTimeoutMs),
+        static_cast<std::uint8_t>(_recordTimeoutMs >> 8),
     };
     reply(Kind::SyncAck, generation, ack, sizeof(ack));
 }
@@ -124,9 +162,11 @@ PacketReceiveResult PacketLink::receive(std::uint8_t* buffer, std::size_t limit)
         // NIO reads again only after answering (see the class comment), so this
         // request got no answer: it was not a valid FujiBus packet, or its answer
         // could not be sent. It may have run.
+        ++_stats.unanswered;
         reply_error(_generation, Error::Unanswered);
         _state = State::Idle;
     }
+    _frontIncomplete = false;
     for (;;) {
         fill();
         auto start = _rx.begin();
@@ -138,7 +178,7 @@ PacketReceiveResult PacketLink::receive(std::uint8_t* buffer, std::size_t limit)
             if (_stream.available()) continue;
             if (_rx.empty()) return {PacketIOStatus::NoData};
             if (front_expired()) {
-                drop_front(2);
+                abandon_front();
                 continue;
             }
             _frontIncomplete = true;
@@ -150,6 +190,7 @@ PacketReceiveResult PacketLink::receive(std::uint8_t* buffer, std::size_t limit)
         const std::size_t size = _rx[4] | (static_cast<std::size_t>(_rx[5]) << 8);
         if (size > capacity()) {
             // The length may be corrupt, so rescan rather than skip the body.
+            ++_stats.oversized;
             if (kind == Kind::Packet && _state == State::Idle && generation == _generation) {
                 reply_error(generation, Error::Oversized);
             }
@@ -159,7 +200,7 @@ PacketReceiveResult PacketLink::receive(std::uint8_t* buffer, std::size_t limit)
         const std::size_t total = kHeader + size + kCrc;
         if (_rx.size() < total) {
             if (front_expired()) {
-                drop_front(2);
+                abandon_front();
                 continue;
             }
             _frontIncomplete = true;
@@ -169,6 +210,7 @@ PacketReceiveResult PacketLink::receive(std::uint8_t* buffer, std::size_t limit)
         std::uint32_t crc = 0;
         for (std::size_t i = 0; i < kCrc; ++i) crc |= static_cast<std::uint32_t>(_rx[kHeader + size + i]) << (8 * i);
         if (crc != crc32(_rx.data() + 2, kHeader - 2 + size)) {
+            ++_stats.corrupt;
             if (kind == Kind::Packet && _state == State::Idle && generation == _generation) {
                 reply_error(generation, Error::Corrupt);
             }
@@ -186,14 +228,18 @@ PacketReceiveResult PacketLink::receive(std::uint8_t* buffer, std::size_t limit)
         case Kind::Packet:
             // Never Busy here: an outstanding request was completed on entry.
             if (_state == State::Unsynchronised || generation != _generation) {
+                ++_stats.refused;
                 reply_error(generation, Error::NotSynchronised);
             } else if (body.empty()) {
+                ++_stats.refused;
                 reply_error(generation, Error::Empty);
             } else if (body.size() > limit) {
+                ++_stats.oversized;
                 reply_error(generation, Error::Oversized);
             } else {
                 std::copy(body.begin(), body.end(), buffer);
                 _state = State::Busy;
+                ++_stats.requests;
                 return {PacketIOStatus::Ok, body.size()};
             }
             break;
@@ -211,6 +257,7 @@ PacketIOStatus PacketLink::send(const std::uint8_t* packet, std::size_t size)
     if (_state != State::Busy) return PacketIOStatus::SendFailed;
     reply(Kind::Packet, _generation, packet, size);
     _state = State::Idle;
+    ++_stats.answers;
     return PacketIOStatus::Ok;
 }
 
@@ -223,15 +270,33 @@ PacketIOStatus PacketLink::reset()
     return PacketIOStatus::Ok;
 }
 
+PacketLinkSettings packet_link_settings(std::uint32_t capacity, std::uint32_t recordTimeoutMs, bool networked)
+{
+    PacketLinkSettings s{};
+    if (capacity != 0) {
+        s.capacity = std::clamp<std::size_t>(capacity, PacketLink::kMinCapacity, PacketLink::kMaxCapacity);
+    }
+    s.recordTimeoutMs = recordTimeoutMs != 0 ? clamp_record_timeout(recordTimeoutMs)
+                        : networked          ? PacketLink::kDefaultNetworkRecordTimeoutMs
+                                             : PacketLink::kDefaultRecordTimeoutMs;
+    return s;
+}
+
 PacketLinkChannel::PacketLinkChannel(std::unique_ptr<Channel> stream, std::size_t capacity)
     : _stream(std::move(stream)), _link(*_stream, capacity)
 {
 }
 
-std::unique_ptr<Channel> with_packet_link(bool packet_link, std::unique_ptr<Channel> stream)
+PacketLinkChannel::PacketLinkChannel(std::unique_ptr<Channel> stream, const PacketLinkSettings& settings)
+    : _stream(std::move(stream)), _link(*_stream, settings.capacity, {}, settings.recordTimeoutMs)
+{
+}
+
+std::unique_ptr<Channel> with_packet_link(bool packet_link, std::unique_ptr<Channel> stream,
+                                          const PacketLinkSettings& settings)
 {
     if (!packet_link || !stream) return stream;
-    return std::make_unique<PacketLinkChannel>(std::move(stream));
+    return std::make_unique<PacketLinkChannel>(std::move(stream), settings);
 }
 
 } // namespace fujinet::io

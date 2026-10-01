@@ -11,6 +11,7 @@
 #include "fujinet/io/devices/virtual_device.h"
 #include "fujinet/io/protocol/fuji_bus_packet.h"
 
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -28,6 +29,10 @@ namespace {
 
 class Stream : public Channel {
 public:
+    // When set, wait_for_readable() with nothing to read blocks for the whole
+    // timeout on this clock.
+    std::uint64_t* clock{nullptr};
+
     void push(const Bytes& b) { _rx.insert(_rx.end(), b.begin(), b.end()); }
     Bytes take()
     {
@@ -46,6 +51,12 @@ public:
         return n;
     }
     void write(const std::uint8_t* buf, std::size_t len) override { _tx.insert(_tx.end(), buf, buf + len); }
+    bool supports_readable_wait() const override { return clock != nullptr; }
+    bool wait_for_readable(std::chrono::milliseconds timeout) override
+    {
+        if (_rx.empty() && clock) *clock += static_cast<std::uint64_t>(timeout.count());
+        return !_rx.empty();
+    }
 
 private:
     std::deque<std::uint8_t> _rx;
@@ -67,13 +78,16 @@ Bytes sync_record(std::uint8_t gen, std::uint8_t version = PacketLink::kVersion)
     return record(Kind::Sync, gen, {version});
 }
 
-// SyncAck from a peer of capacity 64.
-Bytes sync_ack(std::uint8_t gen)
+// SyncAck from a peer of capacity 64 and the default record timeout.
+Bytes sync_ack(std::uint8_t gen, std::uint16_t timeout_ms = PacketLink::kDefaultRecordTimeoutMs)
 {
-    return record(Kind::SyncAck, gen, {PacketLink::kVersion, 64, 0});
+    return record(Kind::SyncAck, gen,
+                  {PacketLink::kVersion, 64, 0, static_cast<std::uint8_t>(timeout_ms),
+                   static_cast<std::uint8_t>(timeout_ms >> 8)});
 }
 
 struct Link {
+    Link() { stream.clock = &now; }
     Stream stream;
     std::uint64_t now = 0;
     PacketLink link{stream, 64, [this] { return now; }};
@@ -182,8 +196,8 @@ TEST_CASE("PacketLink records match the Python controller's")
 {
     // The same records are checked in py/tests/test_packetlink.py.
     CHECK(sync_record(7) == Bytes{0xF5, 0x4E, 0x10, 0x07, 0x01, 0x00, 0x01, 0x87, 0x02, 0xD0, 0x4D});
-    CHECK(record(Kind::SyncAck, 7, {0x01, 0x00, 0x10}) ==
-          Bytes{0xF5, 0x4E, 0x11, 0x07, 0x03, 0x00, 0x01, 0x00, 0x10, 0x3F, 0x78, 0x15, 0x1A});
+    CHECK(record(Kind::SyncAck, 7, {0x01, 0x00, 0x10, 0x64, 0x00}) ==
+          Bytes{0xF5, 0x4E, 0x11, 0x07, 0x05, 0x00, 0x01, 0x00, 0x10, 0x64, 0x00, 0x41, 0x40, 0x98, 0x25});
     CHECK(record(Kind::Packet, 7, fujibus_wire_fixtures::minimum.raw) ==
           Bytes{0xF5, 0x4E, 0x01, 0x07, 0x06, 0x00, 0x01, 0x02, 0x06, 0x00, 0x09, 0x00, 0x56, 0x03, 0x73, 0xEB});
 }
@@ -220,7 +234,7 @@ TEST_CASE("PacketLink rejects requests outside a generation")
     CHECK(l.stream.take() == error(3, Error::NotSynchronised));
 }
 
-TEST_CASE("PacketLink Sync and SyncAck carry the link version and the peer's capacity")
+TEST_CASE("PacketLink Sync and SyncAck carry the link version, capacity and record timeout")
 {
     Link l;
     l.stream.push(sync_record(3, 1));
@@ -230,7 +244,24 @@ TEST_CASE("PacketLink Sync and SyncAck carry the link version and the peer's cap
     // A controller that speaks a later version is answered with this one.
     l.stream.push(sync_record(4, 9));
     CHECK(l.receive() == PacketIOStatus::NoData);
-    CHECK(l.stream.take() == record(Kind::SyncAck, 4, {1, 64, 0}));
+    CHECK(l.stream.take() == record(Kind::SyncAck, 4, {1, 64, 0, 100, 0}));
+}
+
+TEST_CASE("PacketLink advertises a changed record timeout at the next Sync")
+{
+    Link l;
+    l.sync(1);
+    l.link.set_record_timeout_ms(2500);
+    CHECK(l.link.record_timeout_ms() == 2500);
+    l.stream.push(sync_record(2));
+    CHECK(l.receive() == PacketIOStatus::NoData);
+    CHECK(l.stream.take() == sync_ack(2, 2500));
+
+    // Kept within 1..kMaxRecordTimeoutMs.
+    l.link.set_record_timeout_ms(0);
+    CHECK(l.link.record_timeout_ms() == 1);
+    l.link.set_record_timeout_ms(1000000);
+    CHECK(l.link.record_timeout_ms() == PacketLink::kMaxRecordTimeoutMs);
 }
 
 TEST_CASE("PacketLink refuses a Sync without a version it speaks")
@@ -314,7 +345,7 @@ TEST_CASE("PacketLink abandons a record that stops arriving")
     const auto req = record(Kind::Packet, 1, {1, 2, 3});
     l.stream.push(Bytes(req.begin(), req.end() - 2));
     CHECK(l.receive() == PacketIOStatus::Incomplete);
-    l.now += PacketLink::kRecordTimeoutMs;
+    l.now += PacketLink::kDefaultRecordTimeoutMs;
     CHECK(l.receive() == PacketIOStatus::NoData);
     l.stream.push(record(Kind::Packet, 1, {4}));
     CHECK(l.receive() == PacketIOStatus::Ok);
@@ -340,20 +371,101 @@ TEST_CASE("PacketLink completes the outstanding request on resync and drops a la
 
 TEST_CASE("PacketLink: a quiet gap before Sync recovers from a cut-off record")
 {
-    // A record cut off after its sync bytes would read its length from the
-    // next record's header. The controller's quiet pause ends it, whether or
-    // not NIO polled during the pause.
+    // A record cut off part way would take the next record's bytes as its
+    // own: here its header claims 40 bytes, more than a Sync supplies. The
+    // controller's quiet pause ends it, whether NIO polled through the pause
+    // or waited on the stream.
     for (const bool polled : {true, false}) {
         CAPTURE(polled);
         Link l;
-        l.stream.push({0xF5, 0x4E});
+        const auto cut = record(Kind::Packet, 1, Bytes(40, 0x11));
+        l.stream.push(Bytes(cut.begin(), cut.begin() + 8));
         CHECK(l.receive() == PacketIOStatus::Incomplete);
-        l.now += PacketLink::kRecordTimeoutMs;
-        if (polled) CHECK(l.receive() == PacketIOStatus::NoData);
+        if (polled) {
+            l.now += PacketLink::kDefaultRecordTimeoutMs;
+            CHECK(l.receive() == PacketIOStatus::NoData);
+        } else {
+            CHECK_FALSE(l.link.wait_for_readable(std::chrono::milliseconds(PacketLink::kDefaultRecordTimeoutMs)));
+        }
         l.stream.push(sync_record(5));
         CHECK(l.receive() == PacketIOStatus::NoData);
         CHECK(l.stream.take() == sync_ack(5));
+        CHECK(l.link.stats().abandoned == 1);
     }
+}
+
+TEST_CASE("PacketLink: time NIO spends busy is not a gap in the record")
+{
+    // More of the record arrived while NIO was busy elsewhere and waited in
+    // the stream's buffer. Reading it late is not a gap on the wire, so the
+    // record survives until its last bytes arrive.
+    Link l;
+    l.sync(1);
+    const auto req = record(Kind::Packet, 1, {1, 2, 3});
+    l.stream.push(Bytes(req.begin(), req.begin() + 5));
+    CHECK(l.receive() == PacketIOStatus::Incomplete);
+    l.stream.push(Bytes(req.begin() + 5, req.end() - 2));
+    l.now += 10 * PacketLink::kDefaultRecordTimeoutMs; // busy, not waiting
+    CHECK(l.receive() == PacketIOStatus::Incomplete);
+    l.stream.push(Bytes(req.end() - 2, req.end()));
+    CHECK(l.receive() == PacketIOStatus::Ok);
+    CHECK(l.link.stats().abandoned == 0);
+}
+
+TEST_CASE("PacketLink: a short wait doesn't end a record")
+{
+    Link l;
+    l.sync(1);
+    const auto req = record(Kind::Packet, 1, {1, 2, 3});
+    l.stream.push(Bytes(req.begin(), req.begin() + 5));
+    CHECK(l.receive() == PacketIOStatus::Incomplete);
+    l.link.wait_for_readable(std::chrono::milliseconds(PacketLink::kDefaultRecordTimeoutMs - 1));
+    l.stream.push(Bytes(req.begin() + 5, req.end()));
+    CHECK(l.receive() == PacketIOStatus::Ok);
+}
+
+TEST_CASE("PacketLink counts what it sees")
+{
+    Link l;
+    l.sync(1);
+    auto bad = record(Kind::Packet, 1, {1});
+    bad[7] ^= 0xFF;
+    l.stream.push(bad);
+    l.stream.push(record(Kind::Packet, 9, {1})); // wrong generation
+    l.stream.push(record(Kind::Packet, 1, {2}));
+    CHECK(l.receive() == PacketIOStatus::Ok);
+    CHECK(l.receive() == PacketIOStatus::NoData); // unanswered
+    const Bytes answer{0xAA};
+    l.stream.push(record(Kind::Packet, 1, {3}));
+    CHECK(l.receive() == PacketIOStatus::Ok);
+    CHECK(l.link.send(answer.data(), answer.size()) == PacketIOStatus::Ok);
+
+    const auto& st = l.link.stats();
+    CHECK(st.syncs == 1);
+    CHECK(st.corrupt == 1);
+    CHECK(st.refused == 1);
+    CHECK(st.requests == 2);
+    CHECK(st.unanswered == 1);
+    CHECK(st.answers == 1);
+    CHECK(l.link.state_name() == "idle");
+    CHECK(l.link.generation() == 1);
+    CHECK(l.link.version() == PacketLink::kVersion);
+}
+
+TEST_CASE("packet_link_settings: zero means the default, networks wait longer, values are clamped")
+{
+    using fujinet::io::packet_link_settings;
+    const auto uart = packet_link_settings(0, 0, false);
+    CHECK(uart.capacity == PacketLink::kDefaultCapacity);
+    CHECK(uart.recordTimeoutMs == PacketLink::kDefaultRecordTimeoutMs);
+    const auto tcp = packet_link_settings(0, 0, true);
+    CHECK(tcp.recordTimeoutMs == PacketLink::kDefaultNetworkRecordTimeoutMs);
+    const auto set = packet_link_settings(1024, 250, true);
+    CHECK(set.capacity == 1024);
+    CHECK(set.recordTimeoutMs == 250);
+    const auto clamped = packet_link_settings(10, 999999, false);
+    CHECK(clamped.capacity == PacketLink::kMinCapacity);
+    CHECK(clamped.recordTimeoutMs == PacketLink::kMaxRecordTimeoutMs);
 }
 
 TEST_CASE("PacketLink keeps a record that arrives slowly but steadily")
@@ -366,7 +478,7 @@ TEST_CASE("PacketLink keeps a record that arrives slowly but steadily")
     for (std::size_t i = 0; i + 1 < req.size(); ++i) {
         l.stream.push({req[i]});
         CHECK(l.receive() == PacketIOStatus::Incomplete);
-        l.now += PacketLink::kRecordTimeoutMs - 1;
+        l.now += PacketLink::kDefaultRecordTimeoutMs - 1;
     }
     l.stream.push({req.back()});
     CHECK(l.receive() == PacketIOStatus::Ok);
@@ -395,7 +507,7 @@ TEST_CASE("FujiBusNative over a packet link reaches the core and answers")
 
     REQUIRE(out.size() == 2);
     CHECK(out[0].kind == Kind::SyncAck);
-    CHECK(out[0].body == Bytes{PacketLink::kVersion, 0x00, 0x10}); // capacity 4096
+    CHECK(out[0].body == Bytes{PacketLink::kVersion, 0x00, 0x10, 100, 0}); // capacity 4096, 100 ms
     REQUIRE(out[1].kind == Kind::Packet);
     CHECK(out[1].generation == 9);
     const auto answer = fujinet::io::protocol::FujiBusPacket::fromRaw(out[1].body);

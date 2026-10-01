@@ -18,6 +18,7 @@ std::unique_ptr<IDiagnosticProvider> create_uart_channel_diagnostic_provider(
 #include "fujinet/config/fuji_config.h"
 #include "fujinet/diag/diagnostic_parse.h"
 #include "fujinet/io/core/channel.h"
+#include "fujinet/io/core/packet_link.h"
 #include "fujinet/io/devices/fuji_device.h"
 #include "fujinet/platform/esp32/uart_channel.h"
 
@@ -101,6 +102,10 @@ static fujinet::platform::esp32::UartChannel* as_uart(fujinet::io::Channel* ch)
 {
     if (ch == nullptr) {
         return nullptr;
+    }
+    // A packet link carries its packets over the UART underneath.
+    if (auto* link = dynamic_cast<fujinet::io::PacketLinkChannel*>(ch)) {
+        ch = &link->stream();
     }
     return dynamic_cast<fujinet::platform::esp32::UartChannel*>(ch);
 }

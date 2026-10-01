@@ -47,7 +47,7 @@ Every record, in both directions:
 | `0x01` Packet | both | one raw FujiBus packet (`serializeRaw()`) |
 | `0x02` Error | peer to controller | one error code |
 | `0x10` Sync | controller to peer | `version` (u8): the highest link version the controller speaks |
-| `0x11` SyncAck | peer to controller | `version` (u8): the version both now use; `capacity` (u16, little-endian): the peer's raw-packet capacity |
+| `0x11` SyncAck | peer to controller | `version` (u8): the version both now use; `capacity` (u16, little-endian): the peer's raw-packet capacity; `record_timeout_ms` (u16, little-endian): the peer's record timeout |
 
 Later versions may add fields at the end of a Sync or SyncAck body; a receiver
 ignores bytes it does not know, and ignores records of a kind it does not know.
@@ -70,17 +70,35 @@ otherwise it is dropped silently and the controller's timeout covers it. Sync
 bytes may appear inside a body; the length and CRC, not the absence of sync
 bytes, delimit a record.
 
-A record is abandoned when its bytes stop for 100 ms. The limit is on the gap
-between bytes, not on the whole record, so a large record on a slow UART still
-arrives. Because a record cut off part way (a controller restarting
-mid-record, say) would otherwise read its length from whatever follows, a
-controller stays quiet for at least 100 ms before every Sync. The peer
-recognises that gap even if it was blocked waiting for input throughout.
+## Record timeout
+
+A record is abandoned when its bytes stop for the peer's record timeout. The
+limit is on the gap between bytes, not on the whole record, so a large record
+on a slow UART still arrives. The peer counts only time it spent waiting for
+input as a gap: if NIO is busy elsewhere, the rest of a record waits in the
+stream's buffer and is still whole when NIO reads it.
+
+| Stream | Automatic timeout | Why |
+| --- | --- | --- |
+| UART, serial port | 100 ms | a microcontroller sends a record without pausing |
+| TCP | 1000 ms | a lost segment waits at least 200 ms to be resent, longer over a slow network |
+
+`channel.packet_link.record_timeout_ms` overrides it (1 to 60000 ms; 0 is
+automatic), and so does `link.set` on the console. The peer advertises the
+value it uses in every SyncAck.
+
+Because a record cut off part way (a controller restarting mid-record, say)
+would otherwise take its length from whatever follows, a controller stays
+quiet before every Sync for a little longer than the peer's record timeout:
+the value from the last SyncAck, or 100 ms before the first. If a Sync gets no
+SyncAck, the controller doubles the pause for the next attempt (up to a few
+seconds), which reaches any peer's setting without knowing it in advance.
 
 ## Capacity
 
-Each peer has a fixed raw-packet capacity, 4096 bytes by default, reported in
-SyncAck. It rejects larger request bodies with Oversized. A controller must
+Each peer has a fixed raw-packet capacity, 4096 bytes by default
+(`channel.packet_link.capacity`, 64 to 65535; it takes effect when NIO
+starts), reported in SyncAck. It rejects larger request bodies with Oversized. A controller must
 keep requests within it and must not ask for answers larger than it, splitting
 larger work: for example reading a floppy track with more than one
 `ReadSectors`, or a file with several reads no larger than the capacity.
@@ -90,7 +108,8 @@ larger work: for example reading a floppy track with more than one
 1. After a quiet pause, the controller sends Sync with a new generation `g`, any time.
 2. The peer completes an outstanding request with Unanswered in its old
    generation, discards every queued and partial packet, adopts `g` and
-   answers SyncAck `g` with the agreed version and its capacity. If the Sync
+   answers SyncAck `g` with the agreed version, its capacity and its record
+   timeout. If the Sync
    has no version the peer speaks, it answers Error UnsupportedVersion in `g`
    and stays unsynchronised.
 3. Only then may the controller send requests, each as a Packet in `g`.
@@ -135,3 +154,27 @@ build profile asks for a link with `packetLink = true` (with
 its stream channel (TCP or serial on POSIX, UART or USB CDC on ESP32) through
 `io::with_packet_link`. Profiles that don't ask, such as the Zorro placeholder
 over a Pty, are unchanged.
+
+### Configuration
+
+```yaml
+channel:
+  packet_link:
+    capacity: 0            # bytes; 0 = 4096
+    record_timeout_ms: 0   # 0 = automatic (100 ms UART/serial, 1000 ms TCP)
+```
+
+### Console
+
+The `link` diagnostics provider is registered when the channel is a packet
+link (see [diagnostics](diagnostics.md)):
+
+- `link.status`: state, generation, agreed version, capacity, record timeout,
+  the stored settings, and counters (syncs, requests, answers, unanswered,
+  refused, corrupt, oversized, abandoned);
+- `link.set record_timeout_ms <ms>`: takes effect at once; controllers learn it
+  at their next Sync;
+- `link.set capacity <bytes>`: stored, applied when NIO next starts;
+- `link.save`: writes `channel.packet_link` to `fujinet.yaml`.
+
+On ESP32 the `uart.*` commands still reach the UART underneath the link.

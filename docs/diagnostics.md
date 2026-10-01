@@ -51,6 +51,21 @@ It currently exposes:
 
 - `disk.slots` — list slot state (inserted/ro/dirty/changed), geometry, and mounted image path (`fs:path`)
 
+### Provider: `link`
+
+Created with `fujinet::diag::create_packet_link_diagnostic_provider(channel, fuji)`
+when the primary channel is a packet link (`io::PacketLinkChannel`), on POSIX
+and ESP32. It exposes:
+
+- `link.status` — state, generation, agreed version, capacity, record timeout,
+  stored settings and counters
+- `link.set <record_timeout_ms|capacity> <value>` — the record timeout changes
+  at once; capacity is stored and applies at the next start
+- `link.save` — write `channel.packet_link` into `fujinet.yaml`
+
+See [`packet_link.md`](packet_link.md). On ESP32 the `uart` provider finds the
+UART beneath a packet link, so `uart.*` keeps working on packet-link boards.
+
 ---
 
 ## Console engine (app-only)

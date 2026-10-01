@@ -84,6 +84,13 @@ struct UartConfig {
     std::uint32_t     txChunkGapUs{2000}; // Idle after each full chunk except the last (0=off).
 };
 
+/// Packet link (docs/packet_link.md) settings, used by profiles with packetLink.
+struct PacketLinkConfig {
+    std::uint32_t capacity{0};        // Raw-packet capacity in bytes; 0 = default (4096).
+    std::uint32_t recordTimeoutMs{0}; // Abandon a record after this gap; 0 = auto
+                                      // (100 ms on a UART or serial port, 1000 ms on TCP).
+};
+
 /// Settings for the logical FujiBus channel (profile-dependent: PTY path on POSIX,
 /// `uart` on ESP32 UartGpio, etc.).
 struct ChannelConfig {
@@ -92,6 +99,7 @@ struct ChannelConfig {
     std::uint16_t tcpPort{65504};      // POSIX TCP serial port for QEMU-style clients
     std::string serialPort{"/dev/ttyUSB0"}; // POSIX serial device for RS-232 profiles
     UartConfig  uart{};     // UART/RS-232 settings (baud, framing, optional RTS/CTS)
+    PacketLinkConfig packetLink{};
 };
 
 // Unified config for the whole FujiNet instance.

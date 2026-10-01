@@ -5,7 +5,7 @@ from fujinet_tools.fujibus import FujiBusSession, build_fuji_packet_decoded
 
 # The same records are checked in tests/test_packet_link.cpp.
 SYNC_GEN7 = bytes.fromhex("f54e10070100018702d04d")
-SYNC_ACK_GEN7_4096 = bytes.fromhex("f54e110703000100103f78151a")
+SYNC_ACK_GEN7_4096_100MS = bytes.fromhex("f54e11070500010010640041409825")
 MINIMUM_GEN7 = bytes.fromhex("f54e01070600010206000900560373eb")
 MINIMUM = bytes([0x01, 0x02, 0x06, 0x00, 0x09, 0x00])
 
@@ -16,9 +16,12 @@ class FakePort:
     `answer` is the response body, None for no answer, "echo" to return the
     request, or an int to answer with that Error code."""
 
-    def __init__(self, answer=b"\xAA", capacity=4096):
+    def __init__(self, answer=b"\xAA", capacity=4096, record_timeout_ms=100, ignore_syncs=0):
         self.answer = answer
         self.capacity = capacity
+        self.record_timeout_ms = record_timeout_ms
+        self.ignore_syncs = ignore_syncs  # Syncs to swallow, as a cut-off record would
+        self.syncs_seen = 0
         self.rx = bytearray()
         self.out = bytearray()
         self.gen = None
@@ -30,12 +33,16 @@ class FakePort:
         self.rx.extend(data)
         rec = pl.extract(self.rx)
         if rec.kind == pl.KIND_SYNC:
+            self.syncs_seen += 1
+            if self.syncs_seen <= self.ignore_syncs:
+                return
             if not rec.body or rec.body[0] == 0:
                 self.gen = None
                 self.out += pl.encode(pl.KIND_ERROR, rec.generation, bytes([pl.ERR_UNSUPPORTED_VERSION]))
                 return
             self.gen = rec.generation
-            ack = bytes([min(rec.body[0], pl.VERSION), self.capacity & 0xFF, self.capacity >> 8])
+            t = self.record_timeout_ms
+            ack = bytes([min(rec.body[0], pl.VERSION), self.capacity & 0xFF, self.capacity >> 8, t & 0xFF, t >> 8])
             self.out += pl.encode(pl.KIND_SYNC_ACK, rec.generation, ack)
             return
         self.packets += 1
@@ -59,20 +66,21 @@ class FakePort:
 
 
 class QuietSync(unittest.TestCase):
-    """Skips the controller's pre-Sync pause; the fake peer needs none."""
+    """Records the controller's pre-Sync pauses instead of sleeping them."""
 
     def setUp(self):
-        self._quiet = pl.RESYNC_QUIET_S
-        pl.RESYNC_QUIET_S = 0
+        self.sleeps = []
+        self._sleep = pl.time.sleep
+        pl.time.sleep = self.sleeps.append
 
     def tearDown(self):
-        pl.RESYNC_QUIET_S = self._quiet
+        pl.time.sleep = self._sleep
 
 
 class RecordTests(unittest.TestCase):
     def test_known_records(self):
         self.assertEqual(pl.encode(pl.KIND_SYNC, 7, bytes([pl.VERSION])), SYNC_GEN7)
-        self.assertEqual(pl.encode(pl.KIND_SYNC_ACK, 7, bytes([1, 0x00, 0x10])), SYNC_ACK_GEN7_4096)
+        self.assertEqual(pl.encode(pl.KIND_SYNC_ACK, 7, bytes([1, 0x00, 0x10, 100, 0])), SYNC_ACK_GEN7_4096_100MS)
         self.assertEqual(pl.encode(pl.KIND_PACKET, 7, MINIMUM), MINIMUM_GEN7)
 
     def test_noise_and_corruption_are_skipped(self):
@@ -95,8 +103,32 @@ class ControllerTests(QuietSync):
         port = FakePort()
         link = pl.Controller(port)
         link.sync()
-        self.assertEqual((link.version, link.capacity), (1, 4096))
+        self.assertEqual((link.version, link.capacity, link.record_timeout_ms), (1, 4096, 100))
         self.assertEqual(link.exchange(MINIMUM, timeout=1), b"\xAA")
+
+    def test_quiet_before_sync_follows_the_advertised_timeout(self):
+        port = FakePort(record_timeout_ms=2500)
+        link = pl.Controller(port)
+        link.sync()
+        link.sync()
+        # Before the first SyncAck: the default; afterwards: the peer's value.
+        self.assertAlmostEqual(self.sleeps[0], 0.1 * pl.QUIET_MARGIN)
+        self.assertAlmostEqual(self.sleeps[1], 2.5 * pl.QUIET_MARGIN)
+
+    def test_unanswered_sync_doubles_the_quiet_period(self):
+        port = FakePort(ignore_syncs=2)
+        link = pl.Controller(port)
+        real_attempt = pl.SYNC_ATTEMPT_S
+        pl.SYNC_ATTEMPT_S = 0.01
+        try:
+            link.sync()
+        finally:
+            pl.SYNC_ATTEMPT_S = real_attempt
+        base = 0.1 * pl.QUIET_MARGIN
+        self.assertEqual(len(self.sleeps), 3)
+        for got, want in zip(self.sleeps, [base, 2 * base, 4 * base]):
+            self.assertAlmostEqual(got, want)
+        self.assertEqual(link.capacity, 4096)
 
     def test_request_over_capacity_is_refused_without_sending(self):
         port = FakePort(capacity=8)

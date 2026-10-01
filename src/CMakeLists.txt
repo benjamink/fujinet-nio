@@ -26,6 +26,7 @@ idf_component_register(
         lib/diagnostic_network_provider.cpp
         lib/diagnostic_parse.cpp
         lib/diagnostic_registry.cpp
+        lib/diagnostic_packet_link_provider.cpp
         lib/diagnostic_uart_channel_provider.cpp
         lib/disk/atr_image.cpp
         lib/disk/dc42_image.cpp

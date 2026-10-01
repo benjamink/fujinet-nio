@@ -132,6 +132,7 @@ set(FUJINET_NIO_SOURCES
         src/lib/diagnostic_network_provider.cpp
         src/lib/diagnostic_parse.cpp
         src/lib/diagnostic_registry.cpp
+        src/lib/diagnostic_packet_link_provider.cpp
         src/lib/diagnostic_uart_channel_provider.cpp
         src/lib/disk/atr_image.cpp
         src/lib/disk/dc42_image.cpp
