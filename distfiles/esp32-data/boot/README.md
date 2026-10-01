@@ -14,3 +14,13 @@ boot:
   config_uri: "flash:/boot/bbc/FN-BOOT.ssd"
   readonly: true
 ```
+
+Amiga default disks are profile-specific FFS/DD ADFs.  After flashing the
+storage image, select one explicitly, for example:
+
+```yaml
+boot:
+  mode: config
+  config_uri: "flash:/boot/amiga/wb13/FujiNet-Default-WB13.adf"
+  readonly: true
+```

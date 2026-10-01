@@ -13,3 +13,13 @@ boot:
   config_uri: "persist:/boot/bbc/FN-BOOT.ssd"
   readonly: true
 ```
+
+Amiga default disks are profile-specific FFS/DD ADFs.  For a POSIX FujiNet
+instance, select one explicitly, for example:
+
+```yaml
+boot:
+  mode: config
+  config_uri: "persist:/boot/amiga/wb32/FujiNet-Default-WB32.adf"
+  readonly: true
+```
