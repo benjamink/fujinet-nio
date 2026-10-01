@@ -262,6 +262,10 @@ ACTION=="add", SUBSYSTEM=="tty", KERNEL=="ttyACM*", \
   ENV{ID_VENDOR_ID}=="303a", ENV{ID_MODEL_ID}=="4001", ENV{ID_USB_INTERFACE_NUM}=="00", \
   SYMLINK+="fujinet-fujibus"
 
+# rs232 fujinet, 1 port, the ID_MODEL_ID is 1001
+ACTION=="add", SUBSYSTEM=="tty", KERNEL=="ttyACM*", \
+  ENV{ID_VENDOR_ID}=="303a", ENV{ID_MODEL_ID}=="1001", ENV{ID_USB_INTERFACE_NUM}=="00", \
+  SYMLINK+="fujinet-rs232"
 ```
 
 Notes:
@@ -272,7 +276,7 @@ Notes:
 
 ```bash
 sudo udevadm control --reload-rules
-sudo udevadm trigger --subsytem-match=tty
+sudo udevadm trigger --sysname-match=tty
 ```
 
 Then unplug/replug the device, and verify:
