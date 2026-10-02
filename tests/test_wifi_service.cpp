@@ -16,7 +16,9 @@ struct Link final : fujinet::net::INetworkLink {
     bool scan_enabled{false};
     int scans{0};
     std::string bssid;
+    fujinet::net::WifiBssid mac{{0x24, 0x6f, 0x28, 0x01, 0x02, 0x03}, true};
     fujinet::net::LinkState state() const override { return state_value; }
+    fujinet::net::WifiBssid mac_address() const override { return mac; }
     void connect(std::string, std::string) override { connected = true; }
     void disconnect() override { connected = false; }
     void poll() override {}
@@ -125,6 +127,42 @@ TEST_CASE("wifi service caches scans between pages") {
     CHECK(link.scans == 2);
 }
 
+namespace fujinet { const char* version(); }
+
+TEST_CASE("wifi service reports adapter MAC and firmware version") {
+    fujinet::config::FujiConfig config;
+    Link link;
+    fujinet::io::WifiService service(config, nullptr, [&] { return &link; });
+    fujinet::io::IORequest request;
+    request.command = 0x05;
+    request.payload = {1};
+    const auto response = service.handle(request);
+    REQUIRE(response.status == fujinet::io::StatusCode::Ok);
+    const std::string firmware = fujinet::version();
+    REQUIRE(response.payload.size() == 2 + 6 + 1 + firmware.size());
+    CHECK(response.payload[0] == 1);
+    CHECK(response.payload[1] == 1);
+    CHECK(response.payload[2] == 0x24);
+    CHECK(response.payload[7] == 0x03);
+    CHECK(response.payload[8] == firmware.size());
+    CHECK(std::string(response.payload.begin() + 9, response.payload.end()) == firmware);
+
+    request.payload = {1, 0};
+    CHECK(service.handle(request).status == fujinet::io::StatusCode::InvalidRequest);
+}
+
+TEST_CASE("wifi service reports firmware version without a link") {
+    fujinet::config::FujiConfig config;
+    fujinet::io::WifiService service(config, nullptr, [] { return nullptr; });
+    fujinet::io::IORequest request;
+    request.command = 0x05;
+    request.payload = {1};
+    const auto response = service.handle(request);
+    REQUIRE(response.status == fujinet::io::StatusCode::Ok);
+    CHECK(response.payload[1] == 0);
+    CHECK(response.payload[8] == std::string(fujinet::version()).size());
+}
+
 TEST_CASE("POSIX Wi-Fi backends advertise real capabilities") {
     using fujinet::platform::posix::PosixWifiLink;
     using fujinet::platform::posix::WifiBackendMode;
@@ -135,10 +173,12 @@ TEST_CASE("POSIX Wi-Fi backends advertise real capabilities") {
     simulated.connect("FujiNet-Sim", "secret");
     CHECK(simulated.state() == fujinet::net::LinkState::Connected);
     CHECK(simulated.scan_wifi().records.size() == 3);
+    CHECK(simulated.mac_address().valid);
 
     PosixWifiLink unavailable(WifiBackendMode::Unavailable);
     CHECK(!unavailable.supports_scan());
     CHECK(unavailable.capabilities().backend == fujinet::net::WifiBackendKind::Unavailable);
     unavailable.connect("ssid", "password");
     CHECK(unavailable.state() == fujinet::net::LinkState::Failed);
+    CHECK(!unavailable.mac_address().valid);
 }

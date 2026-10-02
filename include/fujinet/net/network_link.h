@@ -69,6 +69,8 @@ public:
     virtual std::string ip_address() const = 0;
 
     virtual WifiBssid current_bssid() const { return {}; }
+    // Station interface MAC address; valid=false when the backend cannot report it.
+    virtual WifiBssid mac_address() const { return {}; }
     virtual std::int8_t rssi() const { return 0; }
     virtual std::string subnet_mask() const { return {}; }
     virtual std::string gateway() const { return {}; }

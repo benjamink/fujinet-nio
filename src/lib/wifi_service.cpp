@@ -7,6 +7,10 @@
 #include <cstddef>
 #include <cstdint>
 
+namespace fujinet {
+const char* version();
+}
+
 namespace fujinet::io {
 namespace {
 
@@ -15,6 +19,7 @@ constexpr std::size_t MAX_SSID = 32;
 constexpr std::size_t MAX_BSSID_TEXT = 17;
 constexpr std::size_t MAX_PASSWORD = 64;
 constexpr std::size_t MAX_SCAN_RECORDS = 32;
+constexpr std::size_t MAX_FIRMWARE_VERSION = 32;
 
 bool u8(const std::vector<std::uint8_t>& p, std::size_t& at, std::uint8_t& v)
 {
@@ -99,6 +104,18 @@ IOResponse WifiService::handle(const IORequest& request)
         // Extensions follow the version-1 fields so older clients can still parse status.
         put16(response.payload, caps.flags);
         response.payload.push_back(static_cast<std::uint8_t>(caps.backend));
+        return response;
+    }
+
+    if (command == protocol::WifiCommand::GetAdapterInfo) {
+        if (request.payload.size() != 1) return make_base_response(request, StatusCode::InvalidRequest);
+        auto* link = _controller.link();
+        const auto mac = link ? link->mac_address() : net::WifiBssid{};
+        std::string firmware = fujinet::version();
+        if (firmware.size() > MAX_FIRMWARE_VERSION) firmware.resize(MAX_FIRMWARE_VERSION);
+        response.payload = {VERSION, static_cast<std::uint8_t>(mac.valid ? 1 : 0)};
+        response.payload.insert(response.payload.end(), mac.bytes, mac.bytes + 6);
+        put_string8(response.payload, firmware);
         return response;
     }
 

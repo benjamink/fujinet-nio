@@ -16,6 +16,7 @@ are never present in any response.
 | `GET_CONFIG` | `0x02` | version only |
 | `SET_CONFIG` | `0x03` | version, field flags, selected fields |
 | `SCAN` | `0x04` | version, offset `u16`, limit `u8` |
+| `GET_ADAPTER_INFO` | `0x05` | version only |
 
 `SET_CONFIG` field flags are `enabled=0x01`, `ssid=0x02`, `bssid=0x04`,
 `password=0x08`, `persist=0x10`, and `reconnect=0x20`. Enabled is one byte;
@@ -38,6 +39,15 @@ Capability flags are config `0x0001`, status `0x0002`, connect `0x0004`,
 disconnect `0x0008`, scan `0x0010`, BSSID selection `0x0020`, host-managed
 `0x0040`, and simulated `0x0080`. Backend kinds are unavailable `0`, ESP32
 `1`, POSIX host-managed `2`, and POSIX simulated `3`.
+
+`GET_ADAPTER_INFO` returns version, MAC-present (`u8`), the six-byte station
+interface MAC address (zero when not present), and the firmware version as a
+`u8` length (at most 32) followed by text. It succeeds without a live link; the
+MAC is then reported as not present. The ESP32 backend reports the station
+MAC, POSIX host mode reads `/sys/class/net/<FN_POSIX_WIFI_INTERFACE>/address`
+on Linux, and POSIX simulated mode reports `02:00:00:00:00:f0`. Firmware
+without this command returns `Unsupported`, so clients should show the fields
+as unavailable rather than fail.
 
 `SCAN` returns version, more flag, count, and records. Each record contains an
 SSID, six BSSID bytes, signed RSSI, channel, and authentication mode. The

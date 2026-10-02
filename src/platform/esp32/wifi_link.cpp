@@ -313,6 +313,13 @@ fujinet::net::WifiBssid Esp32WifiLink::current_bssid() const
     return result;
 }
 
+fujinet::net::WifiBssid Esp32WifiLink::mac_address() const
+{
+    fujinet::net::WifiBssid result;
+    if (_inited && esp_wifi_get_mac(WIFI_IF_STA, result.bytes) == ESP_OK) result.valid = true;
+    return result;
+}
+
 std::int8_t Esp32WifiLink::rssi() const
 {
     wifi_ap_record_t ap{};
