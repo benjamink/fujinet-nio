@@ -194,20 +194,30 @@ Enumerates entries of a directory in chunks to avoid fixed size limits.
 [Common Request Prefix]
 u16  startIndex         // LE; index of first entry to return
 u16  maxPayloadBytes    // LE; max bytes for the variable entries blob in the response
-u8   listFlags          // optional; present if payload has a byte remaining after the fields above
+u8   listFlags          // optional; 0 when absent
+u8   maxNameBytes       // optional (needs listFlags); 0 or absent = 220
 ```
 
-`listFlags` bits (optional byte):
+Both optional bytes may be omitted, and any bytes after them are ignored, so
+clients and firmware of different ages interoperate (see
+[extending commands](protocol_reference.md#extending-commands)).
+
+`listFlags` bits:
 
 - bit0: compact — omit `sizeBytes` and `modifiedUnixTime` per entry (binary entries blob)
 - bit1: sort by basename before paging (device collects the full directory first)
-- bit2: formatted — entries blob is UTF-8 text, one directory line per entry, separated by `\n` (whole lines only; incompatible with bit0). When bit2 is set, a following u8 `lineWidth` (20..120) is required.
+- bit2: formatted — entries blob is UTF-8 text, one directory line per entry (whole lines only; incompatible with bit0)
+
+`maxNameBytes` caps each basename in the binary entries blob, for clients
+with little memory. A name cut short sets `entryFlags` bit7 and response
+`flags` bit3. Formatted lines always carry the full name and ignore it.
 
 ### Response
 
 ```
 u8   version            // = 1
-u8   flags              // bit0=more, bit1=compact, bit2=formatted text lines
+u8   flags              // bit0=more, bit1=compact, bit2=formatted text lines,
+                        // bit3=a name was cut to maxNameBytes
 u16  reserved           // = 0
 u16  startIndex         // LE; echoed from request
 u16  entryCount         // LE; number of complete entries encoded below
@@ -217,13 +227,13 @@ entries blob (entriesLen bytes):
 
 When **compact** or default binary (flags bit2 clear): repeat `entryCount` times:
 
-  u8   entryFlags       // bit0=isDir
-  u8   nameLen          // basename length (0..255)
+  u8   entryFlags       // bit0=isDir, bit7=name cut to maxNameBytes
+  u8   nameLen          // basename length (0..220, or less with maxNameBytes)
   u8[] name             // basename only (no directory prefix)
   u64  sizeBytes        // LE (0 for directories); omitted when compact
   u64  modifiedUnixTime // LE seconds since epoch; 0 if unavailable; omitted when compact
 
-When **formatted** (flags bit2 set): UTF-8 text, `entryCount` complete lines separated by `\n` (no `\r`). Each line is ls-style: type (`d` or `-`), size with thousands separators, date (`Mon dd HH:MM` in the current year, else `Mon dd  YYYY`), and basename, padded/truncated to `lineWidth` from the request.
+When **formatted** (flags bit2 set): UTF-8 text, `entryCount` complete lines, each ending in `\n` (no `\r`). Each line is ls-style: type (`d` or `-`), a fixed-width size with thousands separators, a fixed-width date (`Mon dd HH:MM` in the current year, else `Mon dd  YYYY`), and the full basename, with `/` appended for directories.
 ```
 
 ### Status codes

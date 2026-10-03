@@ -421,6 +421,32 @@ This historical output is not a valid raw packet contract.
 - Retry/correlation semantics
 - Extended-length descriptors (> 64 KB packets)
 
+<a id="extending-commands"></a>
+### 14.1. Extending commands
+
+Clients and firmware are updated separately, so a newer program must work with
+older firmware and an older program with newer firmware. Commands designed to
+grow follow these rules:
+
+1. **The request starts with a version byte**: the highest version the client
+   understands. Zero, or no version byte, is `InvalidRequest`.
+2. **The reply uses the lower of that and the device's highest version**, and
+   starts with the version it used. The client parses the layout for that
+   version. One round trip; no retry with a lower version.
+3. **Optional request fields go at the end.** A device reads them only if
+   present and ignores any bytes after the fields it knows, so a newer client's
+   extra fields don't upset older firmware.
+4. **A reply never grows within a version.** 8-bit clients read replies into
+   buffers sized for the version they asked for, and `fujinet-nio-lib` treats a
+   larger reply as an error. New reply fields need a new version.
+
+Following these rules: FujiDevice `GetInfo`, Wi-Fi `GET_ADAPTER_INFO`, and the
+optional fields of FileDevice `ListDirectory`; the
+[packet link](packet_link.md) Sync handshake works the same way. Many older
+commands reject trailing request bytes, and Wi-Fi `GET_STATUS` appended reply
+fields to version 1 before these rules existed. New commands follow the rules;
+existing ones move to them when next extended.
+
 ---
 
 # 15. Reference Implementations

@@ -13,7 +13,7 @@ class FujiGetInfoTests(unittest.TestCase):
         info = fuji.parse_get_info_resp(payload)
         self.assertEqual((info.firmware_version, info.build_profile), ("0.1.1", "Generic"))
 
-    def test_ignores_later_fields(self):
+    def test_tolerates_trailing_bytes(self):
         payload = b"\x01\x01a\x01b" + b"\xAA\xBB"
         self.assertEqual(fuji.parse_get_info_resp(payload).build_profile, "b")
 
