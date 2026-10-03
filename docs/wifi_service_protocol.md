@@ -40,14 +40,17 @@ disconnect `0x0008`, scan `0x0010`, BSSID selection `0x0020`, host-managed
 `0x0040`, and simulated `0x0080`. Backend kinds are unavailable `0`, ESP32
 `1`, POSIX host-managed `2`, and POSIX simulated `3`.
 
-`GET_ADAPTER_INFO` returns version, MAC-present (`u8`), the six-byte station
-interface MAC address (zero when not present), and the firmware version as a
-`u8` length (at most 32) followed by text. It succeeds without a live link; the
-MAC is then reported as not present. The ESP32 backend reports the station
-MAC, POSIX host mode reads `/sys/class/net/<FN_POSIX_WIFI_INTERFACE>/address`
-on Linux, and POSIX simulated mode reports `02:00:00:00:00:f0`. Firmware
-without this command returns `Unsupported`, so clients should show the fields
-as unavailable rather than fail.
+`GET_ADAPTER_INFO` returns version, MAC-present (`u8`) and the six-byte station
+interface MAC address (zero when not present). It succeeds without a live link;
+the MAC is then reported as not present. The ESP32 backend reports the factory
+station MAC (`esp_read_mac`), POSIX host mode reads
+`/sys/class/net/<FN_POSIX_WIFI_INTERFACE>/address` on Linux, and POSIX
+simulated mode reports `02:00:00:00:00:f0`. Firmware without this command
+returns `Unsupported`, so clients should show the MAC as unavailable rather
+than fail. The firmware version comes from FujiDevice `GetInfo`
+([FujiDevice protocol](fuji_device_protocol.md)), not from this service. The
+console's `net.wifi.status` shows the MAC, and `./scripts/fujinet --port <port>
+wifi adapter` asks for it from a host.
 
 `SCAN` returns version, more flag, count, and records. Each record contains an
 SSID, six BSSID bytes, signed RSSI, channel, and authentication mode. The

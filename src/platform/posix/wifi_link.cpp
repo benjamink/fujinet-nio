@@ -100,10 +100,10 @@ void PosixWifiLink::poll()
 std::string PosixWifiLink::ip_address() const { return _ip; }
 net::WifiBssid PosixWifiLink::current_bssid() const { return {}; }
 
-net::WifiBssid PosixWifiLink::mac_address() const
+net::MacAddress PosixWifiLink::mac_address() const
 {
     if (_mode != WifiBackendMode::Simulated) return _mac;
-    net::WifiBssid simulated;
+    net::MacAddress simulated;
     const std::uint8_t bytes[6] = {0x02, 0x00, 0x00, 0x00, 0x00, 0xF0};
     std::memcpy(simulated.bytes, bytes, sizeof(bytes));
     simulated.valid = true;

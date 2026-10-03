@@ -12,10 +12,28 @@ enum class LinkState {
     Failed,
 };
 
-struct WifiBssid {
+struct MacAddress {
     std::uint8_t bytes[6]{};
     bool valid{false};
 };
+
+// An access point's MAC address.
+using WifiBssid = MacAddress;
+
+// Canonical text form, "aa:bb:cc:dd:ee:ff"; empty when not valid.
+inline std::string to_string(const MacAddress& mac)
+{
+    if (!mac.valid) return {};
+    static constexpr char hex[] = "0123456789abcdef";
+    std::string text;
+    text.reserve(17);
+    for (std::size_t i = 0; i < 6; ++i) {
+        if (i) text += ':';
+        text += hex[mac.bytes[i] >> 4];
+        text += hex[mac.bytes[i] & 0x0F];
+    }
+    return text;
+}
 
 struct WifiScanRecord {
     std::string ssid;
@@ -70,7 +88,7 @@ public:
 
     virtual WifiBssid current_bssid() const { return {}; }
     // Station interface MAC address; valid=false when the backend cannot report it.
-    virtual WifiBssid mac_address() const { return {}; }
+    virtual MacAddress mac_address() const { return {}; }
     virtual std::int8_t rssi() const { return 0; }
     virtual std::string subnet_mask() const { return {}; }
     virtual std::string gateway() const { return {}; }

@@ -5,6 +5,8 @@ import argparse
 
 from . import file as file_cmds
 from . import clock as clock_cmds
+from . import fuji as fuji_cmds
+from . import wifi as wifi_cmds
 from . import net as net_cmds
 from . import disk as disk_cmds
 from . import bbc as bbc_cmds
@@ -34,6 +36,8 @@ def main() -> None:
 
     file_cmds.register_subcommands(sub)
     clock_cmds.register_subcommands(sub)
+    fuji_cmds.register_subcommands(sub)
+    wifi_cmds.register_subcommands(sub)
     net_cmds.register_subcommands(sub)
     disk_cmds.register_subcommands(sub)
     bbc_cmds.register_subcommands(sub)

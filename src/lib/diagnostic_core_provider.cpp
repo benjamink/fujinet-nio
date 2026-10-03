@@ -2,12 +2,9 @@
 
 #include "fujinet/build/profile.h"
 #include "fujinet/core/core.h"
+#include "fujinet/core/version.h"
 
 #include <string>
-
-namespace fujinet {
-const char* version();
-} // namespace fujinet
 
 namespace fujinet::diag {
 

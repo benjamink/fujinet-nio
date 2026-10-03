@@ -4,6 +4,7 @@
 
 extern "C" {
 #include "esp_err.h"
+#include "esp_mac.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
@@ -313,10 +314,11 @@ fujinet::net::WifiBssid Esp32WifiLink::current_bssid() const
     return result;
 }
 
-fujinet::net::WifiBssid Esp32WifiLink::mac_address() const
+fujinet::net::MacAddress Esp32WifiLink::mac_address() const
 {
-    fujinet::net::WifiBssid result;
-    if (_inited && esp_wifi_get_mac(WIFI_IF_STA, result.bytes) == ESP_OK) result.valid = true;
+    // The factory station MAC, readable whether or not the Wi-Fi driver started.
+    fujinet::net::MacAddress result;
+    if (esp_read_mac(result.bytes, ESP_MAC_WIFI_STA) == ESP_OK) result.valid = true;
     return result;
 }
 

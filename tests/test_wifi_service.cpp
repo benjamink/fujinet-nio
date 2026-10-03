@@ -1,7 +1,13 @@
 #include "doctest.h"
 
+#include "fujinet/core/core.h"
+#include "fujinet/diag/diagnostic_provider.h"
+#include "fujinet/io/devices/fuji_device.h"
 #include "fujinet/io/devices/wifi_service.h"
 #include "fujinet/platform/posix/wifi_link.h"
+
+#include <memory>
+#include <vector>
 
 namespace {
 struct Store final : fujinet::config::FujiConfigStore {
@@ -127,9 +133,7 @@ TEST_CASE("wifi service caches scans between pages") {
     CHECK(link.scans == 2);
 }
 
-namespace fujinet { const char* version(); }
-
-TEST_CASE("wifi service reports adapter MAC and firmware version") {
+TEST_CASE("wifi service reports the adapter MAC") {
     fujinet::config::FujiConfig config;
     Link link;
     fujinet::io::WifiService service(config, nullptr, [&] { return &link; });
@@ -138,20 +142,13 @@ TEST_CASE("wifi service reports adapter MAC and firmware version") {
     request.payload = {1};
     const auto response = service.handle(request);
     REQUIRE(response.status == fujinet::io::StatusCode::Ok);
-    const std::string firmware = fujinet::version();
-    REQUIRE(response.payload.size() == 2 + 6 + 1 + firmware.size());
-    CHECK(response.payload[0] == 1);
-    CHECK(response.payload[1] == 1);
-    CHECK(response.payload[2] == 0x24);
-    CHECK(response.payload[7] == 0x03);
-    CHECK(response.payload[8] == firmware.size());
-    CHECK(std::string(response.payload.begin() + 9, response.payload.end()) == firmware);
+    CHECK(response.payload == std::vector<std::uint8_t>{1, 1, 0x24, 0x6f, 0x28, 0x01, 0x02, 0x03});
 
     request.payload = {1, 0};
     CHECK(service.handle(request).status == fujinet::io::StatusCode::InvalidRequest);
 }
 
-TEST_CASE("wifi service reports firmware version without a link") {
+TEST_CASE("wifi service reports no MAC without a link") {
     fujinet::config::FujiConfig config;
     fujinet::io::WifiService service(config, nullptr, [] { return nullptr; });
     fujinet::io::IORequest request;
@@ -159,8 +156,35 @@ TEST_CASE("wifi service reports firmware version without a link") {
     request.payload = {1};
     const auto response = service.handle(request);
     REQUIRE(response.status == fujinet::io::StatusCode::Ok);
-    CHECK(response.payload[1] == 0);
-    CHECK(response.payload[8] == std::string(fujinet::version()).size());
+    CHECK(response.payload == std::vector<std::uint8_t>{1, 0, 0, 0, 0, 0, 0, 0});
+}
+
+TEST_CASE("a MAC address prints in canonical form") {
+    fujinet::net::MacAddress mac{{0x02, 0x00, 0xAB, 0x0C, 0xFF, 0xF0}, true};
+    CHECK(fujinet::net::to_string(mac) == "02:00:ab:0c:ff:f0");
+    mac.valid = false;
+    CHECK(fujinet::net::to_string(mac).empty());
+}
+
+TEST_CASE("net.wifi.status shows the adapter MAC") {
+    fujinet::core::FujinetCore core;
+    fujinet::io::FujiDevice fuji(nullptr, nullptr);
+    Link link;
+    auto ctx = std::make_shared<fujinet::diag::NetworkDiagWifiContext>();
+    ctx->fuji = &fuji;
+    ctx->ensure_wifi = [&]() -> fujinet::net::INetworkLink* { return &link; };
+    auto diag = fujinet::diag::create_network_diagnostic_provider(core, ctx);
+    REQUIRE(diag != nullptr);
+
+    fujinet::diag::DiagArgsView args;
+    args.argv = {"net.wifi.status"};
+    auto r = diag->execute(args);
+    REQUIRE(r.status == fujinet::diag::DiagStatus::Ok);
+    CHECK(r.text.find("mac: 24:6f:28:01:02:03") != std::string::npos);
+
+    link.mac.valid = false;
+    r = diag->execute(args);
+    CHECK(r.text.find("mac: unavailable") != std::string::npos);
 }
 
 TEST_CASE("POSIX Wi-Fi backends advertise real capabilities") {

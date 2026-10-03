@@ -3,6 +3,12 @@
 #include "fujinet/config/fuji_config.h"
 #include "fujinet/io/devices/fuji_commands.h"
 #include "fujinet/io/devices/fuji_device.h"
+#include "fujinet/build/profile.h"
+#include "fujinet/core/version.h"
+
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include <memory>
 
@@ -53,6 +59,37 @@ TEST_CASE("FujiDevice loads non-mount configuration on start")
 
     CHECK(storePtr->loadCount == 1);
     CHECK(device.config().general.deviceName == "test-fujinet");
+}
+
+TEST_CASE("FujiDevice GetInfo reports the firmware version and build profile")
+{
+    FujiDevice device(nullptr, nullptr);
+    IORequest request;
+    request.command = static_cast<std::uint16_t>(FujiCommand::GetInfo);
+    request.payload = {1};
+    const auto response = device.handle(request);
+    REQUIRE(response.status == StatusCode::Ok);
+
+    const std::string firmware = fujinet::version();
+    const std::string_view profile = fujinet::build::current_build_profile().name;
+    std::vector<std::uint8_t> expected{1, static_cast<std::uint8_t>(firmware.size())};
+    expected.insert(expected.end(), firmware.begin(), firmware.end());
+    expected.push_back(static_cast<std::uint8_t>(profile.size()));
+    expected.insert(expected.end(), profile.begin(), profile.end());
+    CHECK(response.payload == expected);
+}
+
+TEST_CASE("FujiDevice GetInfo needs exactly the version byte")
+{
+    FujiDevice device(nullptr, nullptr);
+    IORequest request;
+    request.command = static_cast<std::uint16_t>(FujiCommand::GetInfo);
+    for (const std::vector<std::uint8_t>& payload : {std::vector<std::uint8_t>{},
+                                                     std::vector<std::uint8_t>{2},
+                                                     std::vector<std::uint8_t>{1, 0}}) {
+        request.payload = payload;
+        CHECK(device.handle(request).status == StatusCode::InvalidRequest);
+    }
 }
 
 TEST_CASE("FujiDevice reset invokes the platform reset handler")

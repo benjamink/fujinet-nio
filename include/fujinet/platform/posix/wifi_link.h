@@ -25,7 +25,7 @@ public:
     void poll() override;
     std::string ip_address() const override;
     net::WifiBssid current_bssid() const override;
-    net::WifiBssid mac_address() const override;
+    net::MacAddress mac_address() const override;
     std::int8_t rssi() const override;
     std::string subnet_mask() const override;
     std::string gateway() const override;
@@ -47,7 +47,7 @@ private:
     std::string _subnet;
     std::string _gateway;
     std::string _dns;
-    net::WifiBssid _mac;
+    net::MacAddress _mac;
 };
 
 } // namespace fujinet::platform::posix

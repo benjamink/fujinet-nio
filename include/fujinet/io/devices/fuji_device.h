@@ -31,6 +31,7 @@ public:
     config::FujiConfigStore* config_store() { return _configStore.get(); }
 
 private:
+    IOResponse handle_get_info(const IORequest& request);
     IOResponse handle_reset(const IORequest& request);
     IOResponse handle_unknown(const IORequest& request);
     void load_config();
