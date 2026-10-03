@@ -75,9 +75,11 @@ It exposes:
 - `net.close <handle|all>` — close a session handle (or all)
 - `net.wifi.*` — scan, status, get, set and save (when a Wi-Fi context is given)
 
-Each `net.sessions` line reads:
+`net.sessions` starts with an `active_sessions: N` line, then one line per
+active session, each reading:
 
 ```
+active_sessions: 1
 handle=0x0102 method=1 flags=0 awaiting_body=0 body=0/0 completed=1 url=http://example.com/a.png translation=image selector=w=640,h=400,colors=16 ready=1 translated=18432
 ```
 
