@@ -158,6 +158,11 @@ set(FUJINET_NIO_SOURCES
         src/lib/host_service.cpp
         src/lib/host_service_init.cpp
         src/lib/host_state.cpp
+        src/lib/image/ilbm_writer.cpp
+        src/lib/image/image_pipeline.cpp
+        src/lib/image/output_format.cpp
+        src/lib/image/stb_image_impl.cpp
+        src/lib/image_content_translator.cpp
         src/lib/io_device_manager.cpp
         src/lib/io_service.cpp
         src/lib/json_content_translator.cpp
@@ -220,6 +225,7 @@ set(FUJINET_NIO_SOURCES
         src/platform/posix/fuji_device_factory.cpp
         src/platform/posix/hardware_caps.cpp
         src/platform/posix/http_network_protocol_curl.cpp
+        src/platform/posix/image_translation.cpp
         src/platform/posix/legacy/iwm_bus_hardware.cpp
         src/platform/posix/legacy/netsio_bus_hardware.cpp
         src/platform/posix/legacy/sio_bus_hardware.cpp
@@ -294,6 +300,7 @@ target_include_directories(fujinet-nio
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cjson
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb
 )
 
 target_compile_features(fujinet-nio PUBLIC cxx_std_20)

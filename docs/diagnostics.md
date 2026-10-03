@@ -66,6 +66,49 @@ and ESP32. It exposes:
 See [`packet_link.md`](packet_link.md). On ESP32 the `uart` provider finds the
 UART beneath a packet link, so `uart.*` keeps working on packet-link boards.
 
+### Provider: `net`
+
+Created with `fujinet::diag::create_network_diagnostic_provider(core, wifi_ctx)`.
+It exposes:
+
+- `net.sessions` — one line per active network session
+- `net.close <handle|all>` — close a session handle (or all)
+- `net.translation.get` — content translation settings: the Image
+  translator's pixel cap, live, stored and the platform default
+- `net.translation.set image_max_pixels <pixels|default>` — change the cap
+  for translations configured from now on (1 to 67108864, which is
+  8192x8192); with a FujiDevice it is also stored, and `default` stores 0
+- `net.translation.save` — write `translation` (`image.max_pixels`) into
+  `fujinet.yaml` (needs the FujiDevice from the Wi-Fi context)
+- `net.wifi.*` — scan, status, get, set and save (when a Wi-Fi context is given)
+
+`net.sessions` starts with an `active_sessions: N` line, then one line per
+active session, each reading:
+
+```
+active_sessions: 1
+handle=0x0102 method=1 flags=0 awaiting_body=0 body=0/0 completed=1 url=http://example.com/a.png translation=image selector=w=640,h=400,colors=16 ready=1 translated=18432
+```
+
+`translation` is `none`, `json`, `xml`, `rss` or `image`. For anything but
+`none` the line continues with `selector` (the JSON Pointer, or the image
+selector), `ready` (`1` once the body has been translated) and `translated`
+(size in bytes of the translated view; `0` until it is ready). The selector
+is printed as given and may contain `=` and `,`; it sits before `ready=`, so
+parse from the right.
+
+`net.translation.get` prints three lines; `stored_image_max_pixels` is `default`
+when `fujinet.yaml` has 0, and is left out without a FujiDevice:
+
+```
+image_max_pixels: 490000
+stored_image_max_pixels: default
+platform_default_image_max_pixels: 490000
+```
+
+See [Image translation](network_device_protocol.md#image-translation-type-4)
+for what the cap limits.
+
 ---
 
 ## Console engine (app-only)

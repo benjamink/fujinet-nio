@@ -44,9 +44,7 @@ inline fujinet::io::ProtocolRegistry make_stub_registry_http_only()
     return reg;
 }
 
-inline std::uint16_t open_handle_stub(
-    NetworkDevice& dev,
-    std::uint16_t deviceId,
+inline std::string open_payload(
     const std::string& url,
     std::uint8_t method = 1, // GET
     std::uint8_t flags = 0,
@@ -96,11 +94,45 @@ inline std::uint16_t open_handle_stub(
         }
     }
 
+    return p;
+}
+
+// Send Open and return the raw response, whatever its status.
+inline IOResponse open_req(
+    NetworkDevice& dev,
+    std::uint16_t deviceId,
+    const std::string& url,
+    fujinet::io::ContentTranslationType translationType,
+    std::string_view translationSelector
+) {
     IORequest req{};
     req.id = 100;
     req.deviceId = deviceId;
     req.command = 0x01; // Open
-    req.payload = to_vec(p);
+    req.payload = to_vec(open_payload(url, 1, 0, 0, {}, translationType, translationSelector));
+    return dev.handle(req);
+}
+
+inline std::uint16_t open_handle_stub(
+    NetworkDevice& dev,
+    std::uint16_t deviceId,
+    const std::string& url,
+    std::uint8_t method = 1, // GET
+    std::uint8_t flags = 0,
+    std::uint32_t bodyLenHint = 0,
+    std::initializer_list<std::string_view> responseHeaders = {},
+    fujinet::io::ContentTranslationType translationType = fujinet::io::ContentTranslationType::None,
+    std::string_view translationSelector = {},
+    std::uint8_t translationFlags = 0,
+    fujinet::io::RequestContentProfile contentProfile = fujinet::io::RequestContentProfile::None
+) {
+    IORequest req{};
+    req.id = 100;
+    req.deviceId = deviceId;
+    req.command = 0x01; // Open
+    req.payload = to_vec(open_payload(url, method, flags, bodyLenHint, responseHeaders,
+                                      translationType, translationSelector, translationFlags,
+                                      contentProfile));
 
     IOResponse resp = dev.handle(req);
     REQUIRE(resp.status == StatusCode::Ok);

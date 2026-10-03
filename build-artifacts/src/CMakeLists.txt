@@ -12,6 +12,7 @@ idf_component_register(
     INCLUDE_DIRS
         "../include"
         "../third_party/cjson"
+        "../third_party/stb"
     REQUIRES
         yaml-cpp-idf
         esp_psram

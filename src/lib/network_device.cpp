@@ -3,6 +3,7 @@
 #include "fujinet/core/logging.h"
 #include "fujinet/io/core/io_message.h"
 #include "fujinet/io/devices/json_content_translator.h"
+#include "fujinet/io/devices/image_content_translator.h"
 #include "fujinet/io/devices/network_content_profile.h"
 
 #include "fujinet/io/devices/net_codec.h"
@@ -12,6 +13,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -52,8 +54,9 @@ static bool extract_scheme_lower(std::string_view url, std::string& outSchemeLow
     return !outSchemeLower.empty();
 }
 
-NetworkDevice::NetworkDevice(ProtocolRegistry registry)
+NetworkDevice::NetworkDevice(ProtocolRegistry registry, NetworkDeviceSettings settings)
     : _registry(std::move(registry))
+    , _settings(settings)
 {
 }
 
@@ -233,13 +236,20 @@ bool NetworkDevice::translation_enabled(const Session& s) noexcept
     return s.translation.enabled() && static_cast<bool>(s.translator);
 }
 
-std::unique_ptr<IContentTranslator> NetworkDevice::make_translator(ContentTranslationType type)
+std::unique_ptr<IContentTranslator> NetworkDevice::make_translator(ContentTranslationType type,
+                                                                   std::uint32_t imageMaxPixels)
 {
     switch (type) {
         case ContentTranslationType::None:
             return nullptr;
         case ContentTranslationType::Json:
             return std::make_unique<JsonContentTranslator>();
+        case ContentTranslationType::Image:
+            // No cap means no settings were given: refuse rather than guess one.
+            if (imageMaxPixels == 0) {
+                return nullptr;
+            }
+            return std::make_unique<ImageContentTranslator>(imageMaxPixels);
         case ContentTranslationType::Xml:
         case ContentTranslationType::Rss:
             return nullptr;
@@ -285,7 +295,7 @@ StatusCode NetworkDevice::configure_translation(Session& s, const TranslationCon
         return StatusCode::Ok;
     }
 
-    auto translator = make_translator(config.type);
+    auto translator = make_translator(config.type, _settings.imageMaxPixels);
     if (!translator) {
         return StatusCode::Unsupported;
     }
@@ -352,19 +362,25 @@ StatusCode NetworkDevice::finalize_translation(Session& s)
         return StatusCode::InvalidRequest;
     }
 
-    s.translator->reset();
-    const StatusCode appendSt = s.translator->append_body(
+    // The cache stays: TranslateConfigure re-runs translation on it. The
+    // translator only reads it here, so one that can work from the buffer
+    // (Image) does not hold a second copy of the body.
+    // Translation runs inside this request and blocks the device until it
+    // finishes, so its time is logged (debug builds) for every translator.
+    [[maybe_unused]] const auto started = std::chrono::steady_clock::now();
+    const StatusCode translateSt = s.translator->translate(
         reinterpret_cast<const std::uint8_t*>(s.responseBodyCache.data()),
         s.responseBodyCache.size());
-    if (appendSt != StatusCode::Ok) {
+    [[maybe_unused]] const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started).count();
+    FN_LOGI("net", "translation type=%u: %zu bytes in %ld ms, status %u",
+            static_cast<unsigned>(s.translation.type),
+            s.responseBodyCache.size(),
+            static_cast<long>(elapsedMs),
+            static_cast<unsigned>(translateSt));
+    if (translateSt != StatusCode::Ok) {
         s.translationReady = false;
-        return appendSt;
-    }
-
-    const StatusCode finalizeSt = s.translator->finalize();
-    if (finalizeSt != StatusCode::Ok) {
-        s.translationReady = false;
-        return finalizeSt;
+        return translateSt;
     }
 
     s.translatedResultSize = s.translator->translated_size();

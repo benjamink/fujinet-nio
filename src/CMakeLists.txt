@@ -52,6 +52,11 @@ idf_component_register(
         lib/host_service.cpp
         lib/host_service_init.cpp
         lib/host_state.cpp
+        lib/image/ilbm_writer.cpp
+        lib/image/image_pipeline.cpp
+        lib/image/output_format.cpp
+        lib/image/stb_image_impl.cpp
+        lib/image_content_translator.cpp
         lib/io_device_manager.cpp
         lib/io_service.cpp
         lib/json_content_translator.cpp
@@ -119,6 +124,7 @@ idf_component_register(
         platform/esp32/hardware_caps.cpp
         platform/esp32/http_network_protocol_espidf.cpp
         platform/esp32/https_trust_esp32.cpp
+        platform/esp32/image_translation.cpp
         platform/esp32/led_manager.cpp
         platform/esp32/legacy/iwm_bus_hardware.cpp
         platform/esp32/legacy/sio_bus_hardware.cpp
@@ -147,6 +153,7 @@ idf_component_register(
     INCLUDE_DIRS
         "../include"
         "../third_party/cjson"
+        "../third_party/stb"
     REQUIRES
         yaml-cpp-idf
         esp_psram

@@ -23,6 +23,21 @@ public:
     virtual StatusCode append_body(const std::uint8_t* data, std::size_t len) = 0;
     virtual StatusCode finalize() = 0;
 
+    // Translate a complete body. The caller keeps owning it (NetworkDevice
+    // passes its response cache, which a later TranslateConfigure re-uses)
+    // and it is only read during the call. The default copies it in through
+    // append_body(); a translator that can work straight from the caller's
+    // buffer overrides this so the body is not held twice.
+    virtual StatusCode translate(const std::uint8_t* data, std::size_t len)
+    {
+        reset();
+        const StatusCode appendSt = append_body(data, len);
+        if (appendSt != StatusCode::Ok) {
+            return appendSt;
+        }
+        return finalize();
+    }
+
     [[nodiscard]] virtual std::uint64_t translated_size() const = 0;
 
     virtual StatusCode read(std::uint32_t offset,

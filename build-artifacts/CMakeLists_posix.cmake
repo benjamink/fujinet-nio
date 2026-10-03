@@ -148,6 +148,7 @@ target_include_directories(fujinet-nio
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cjson
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb
 )
 
 target_compile_features(fujinet-nio PUBLIC cxx_std_20)

@@ -307,6 +307,13 @@ def cmd_net_close(args) -> int:
         return 0
 
 
+SELECTOR_HELP = (
+    "Translator selector: a JSON Pointer for json; for image, key=value pairs such as "
+    "w=640,h=400,colors=16 (also base, par, dither, mode, up, bits=1..8 palette depth, "
+    "fmt=ilbm output format). Omit keys left at their default for older firmware."
+)
+
+
 def _translation_type_value(name: str) -> int:
     key = (name or "none").strip().lower()
     mapping = {
@@ -314,6 +321,7 @@ def _translation_type_value(name: str) -> int:
         "json": np.TRANSLATION_JSON,
         "xml": np.TRANSLATION_XML,
         "rss": np.TRANSLATION_RSS,
+        "image": np.TRANSLATION_IMAGE,
     }
     if key not in mapping:
         raise ValueError(f"Unsupported content type: {name}")
@@ -1055,14 +1063,14 @@ def register_subcommands(subparsers) -> None:
     )
     pno.add_argument(
         "--content-type",
-        choices=["none", "json", "xml", "rss"],
+        choices=["none", "json", "xml", "rss", "image"],
         default="none",
         help="Enable a translated response view for the handle",
     )
     pno.add_argument(
         "--selector",
         default="",
-        help="Translator selector (JSON Pointer for JSON mode)",
+        help=SELECTOR_HELP,
     )
     pno.add_argument("url")
     pno.set_defaults(fn=cmd_net_open)
@@ -1120,14 +1128,14 @@ def register_subcommands(subparsers) -> None:
     )
     png.add_argument(
         "--content-type",
-        choices=["none", "json", "xml", "rss"],
+        choices=["none", "json", "xml", "rss", "image"],
         default="none",
         help="Enable a translated response view for the handle",
     )
     png.add_argument(
         "--selector",
         default="",
-        help="Translator selector (JSON Pointer for JSON mode)",
+        help=SELECTOR_HELP,
     )
     png.add_argument("url")
     png.set_defaults(fn=cmd_net_get)
@@ -1154,14 +1162,14 @@ def register_subcommands(subparsers) -> None:
     )
     pnh.add_argument(
         "--content-type",
-        choices=["none", "json", "xml", "rss"],
+        choices=["none", "json", "xml", "rss", "image"],
         default="none",
         help="Enable a translated response view for the handle",
     )
     pnh.add_argument(
         "--selector",
         default="",
-        help="Translator selector (JSON Pointer for JSON mode)",
+        help=SELECTOR_HELP,
     )
     pnh.add_argument("url")
     pnh.set_defaults(fn=cmd_net_head)
@@ -1229,14 +1237,14 @@ def register_subcommands(subparsers) -> None:
     )
     pns.add_argument(
         "--content-type",
-        choices=["none", "json", "xml", "rss"],
+        choices=["none", "json", "xml", "rss", "image"],
         default="none",
         help="Enable a translated response view for the handle",
     )
     pns.add_argument(
         "--selector",
         default="",
-        help="Translator selector (JSON Pointer for JSON mode)",
+        help=SELECTOR_HELP,
     )
     pns.add_argument("url")
     pns.set_defaults(fn=cmd_net_send)
@@ -1245,11 +1253,15 @@ def register_subcommands(subparsers) -> None:
     ptr.add_argument("--handle", type=int, required=True, help="Handle from net open")
     ptr.add_argument(
         "--content-type",
-        choices=["none", "json", "xml", "rss"],
+        choices=["none", "json", "xml", "rss", "image"],
         default="json",
         help="Translation type to apply",
     )
-    ptr.add_argument("--selector", default="", help="Translator selector")
+    ptr.add_argument(
+        "--selector",
+        default="",
+        help=SELECTOR_HELP,
+    )
     ptr.add_argument("--timeout", type=float, default=10.0)
     ptr.set_defaults(fn=cmd_net_translate)
 
