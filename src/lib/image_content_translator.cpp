@@ -68,6 +68,13 @@ StatusCode ImageContentTranslator::finalize()
     return convert(body.data(), body.size());
 }
 
+// Decodes straight from the caller's buffer: no copy of the body is made.
+StatusCode ImageContentTranslator::translate(const std::uint8_t* data, std::size_t len)
+{
+    std::vector<std::uint8_t>().swap(_body);
+    return convert(data, len);
+}
+
 StatusCode ImageContentTranslator::convert(const std::uint8_t* data, std::size_t len)
 {
     std::vector<std::uint8_t>().swap(_out);

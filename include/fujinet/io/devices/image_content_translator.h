@@ -22,6 +22,7 @@ public:
     void reset() override;
     StatusCode append_body(const std::uint8_t* data, std::size_t len) override;
     StatusCode finalize() override;
+    StatusCode translate(const std::uint8_t* data, std::size_t len) override;
     std::uint64_t translated_size() const override;
     StatusCode read(std::uint32_t offset,
                     std::uint8_t* out,

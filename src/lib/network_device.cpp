@@ -357,19 +357,15 @@ StatusCode NetworkDevice::finalize_translation(Session& s)
         return StatusCode::InvalidRequest;
     }
 
-    s.translator->reset();
-    const StatusCode appendSt = s.translator->append_body(
+    // The cache stays: TranslateConfigure re-runs translation on it. The
+    // translator only reads it here, so one that can work from the buffer
+    // (Image) does not hold a second copy of the body.
+    const StatusCode translateSt = s.translator->translate(
         reinterpret_cast<const std::uint8_t*>(s.responseBodyCache.data()),
         s.responseBodyCache.size());
-    if (appendSt != StatusCode::Ok) {
+    if (translateSt != StatusCode::Ok) {
         s.translationReady = false;
-        return appendSt;
-    }
-
-    const StatusCode finalizeSt = s.translator->finalize();
-    if (finalizeSt != StatusCode::Ok) {
-        s.translationReady = false;
-        return finalizeSt;
+        return translateSt;
     }
 
     s.translatedResultSize = s.translator->translated_size();

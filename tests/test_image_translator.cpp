@@ -7,8 +7,10 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 using fujinet::io::ContentTranslationType;
+using fujinet::io::IContentTranslator;
 using fujinet::io::ImageContentTranslator;
 using fujinet::io::StatusCode;
 using fujinet::io::TranslationConfig;
@@ -98,4 +100,73 @@ TEST_CASE("ImageTranslator: stb_image refuses a side over 8192 even under the pi
     REQUIRE(widest.configure(image_config("")) == StatusCode::Ok);
     REQUIRE(widest.append_body(kPng8192x1, sizeof(kPng8192x1)) == StatusCode::Ok);
     CHECK(widest.finalize() == StatusCode::Ok);
+}
+
+namespace {
+
+// Records the calls the IContentTranslator default translate() makes.
+class RecordingTranslator final : public IContentTranslator {
+public:
+    StatusCode configure(const TranslationConfig&) override { return StatusCode::Ok; }
+    void reset() override { calls += "reset;"; }
+    StatusCode append_body(const std::uint8_t* data, std::size_t len) override
+    {
+        calls += "append;";
+        body.assign(data, data + len);
+        return StatusCode::Ok;
+    }
+    StatusCode finalize() override
+    {
+        calls += "finalize;";
+        return StatusCode::Ok;
+    }
+    std::uint64_t translated_size() const override { return 0; }
+    StatusCode read(std::uint32_t, std::uint8_t*, std::size_t, std::uint16_t& actual, bool& eof) const override
+    {
+        actual = 0;
+        eof = true;
+        return StatusCode::Ok;
+    }
+
+    std::string calls;
+    std::vector<std::uint8_t> body;
+};
+
+std::vector<std::uint8_t> read_everything(const IContentTranslator& t)
+{
+    std::vector<std::uint8_t> out(static_cast<std::size_t>(t.translated_size()));
+    std::uint16_t n = 0;
+    bool eof = false;
+    REQUIRE(t.read(0, out.data(), out.size(), n, eof) == StatusCode::Ok);
+    REQUIRE(n == out.size());
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("IContentTranslator::translate defaults to reset, append_body, finalize")
+{
+    RecordingTranslator t;
+    const std::uint8_t body[] = {'{', '}'};
+    CHECK(t.translate(body, sizeof(body)) == StatusCode::Ok);
+    CHECK(t.calls == "reset;append;finalize;");
+    CHECK(t.body == std::vector<std::uint8_t>{'{', '}'});
+}
+
+TEST_CASE("ImageTranslator::translate decodes the caller's buffer without copying it in")
+{
+    ImageContentTranslator viaAppend(kTestMaxPixels);
+    REQUIRE(viaAppend.configure(image_config("colors=2,mode=gray,dither=none")) == StatusCode::Ok);
+    REQUIRE(viaAppend.append_body(kPng2x1, sizeof(kPng2x1)) == StatusCode::Ok);
+    REQUIRE(viaAppend.finalize() == StatusCode::Ok);
+
+    ImageContentTranslator viaView(kTestMaxPixels);
+    REQUIRE(viaView.configure(image_config("colors=2,mode=gray,dither=none")) == StatusCode::Ok);
+    REQUIRE(viaView.translate(kPng2x1, sizeof(kPng2x1)) == StatusCode::Ok);
+    CHECK(read_everything(viaView) == read_everything(viaAppend));
+
+    // A second translate on the same translator replaces the output.
+    const std::uint8_t junk[] = {1, 2, 3, 4};
+    CHECK(viaView.translate(junk, sizeof(junk)) == StatusCode::InvalidRequest);
+    CHECK(viaView.translated_size() == 0);
 }
