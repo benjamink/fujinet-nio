@@ -9,7 +9,7 @@
 #include "fujinet/diag/diagnostic_provider.h"
 #include "fujinet/io/devices/fuji_device.h"
 #include "fujinet/io/devices/network_device_diagnostics.h"
-#include "fujinet/platform/network_registry.h"
+#include "fujinet/platform/image_translation.h"
 
 #include <memory>
 #include <string>
@@ -29,7 +29,9 @@ struct Fixture {
 
     Fixture()
     {
-        auto d = std::make_unique<NetworkDevice>(make_stub_registry_http_only());
+        // The settings register_network_device() would use (platform default cap).
+        auto d = std::make_unique<NetworkDevice>(make_stub_registry_http_only(),
+                                                 fujinet::core::network_device_settings({}));
         dev = d.get();
         REQUIRE(core.deviceManager().registerDevice(deviceId, std::move(d)));
     }
@@ -106,7 +108,7 @@ TEST_CASE("SessionRow carries the translation fields from the session")
 }
 
 // ---------------------------------------------------------------------------
-// net.image.*: the Image translator's pixel cap (network.image_max_pixels)
+// net.translation.*: the Image translator's pixel cap (translation.image.max_pixels)
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -137,12 +139,12 @@ TEST_CASE("POSIX supplies a 4096x4096 default image pixel cap")
     CHECK(fujinet::platform::default_image_max_pixels() == 4096u * 4096u);
 }
 
-TEST_CASE("network.image_max_pixels 0 means the platform default when the device is registered")
+TEST_CASE("translation.image.max_pixels 0 means the platform default when the device is registered")
 {
-    fujinet::config::NetworkConfig config;
+    fujinet::config::ContentTranslationConfig config;
     CHECK(fujinet::core::network_device_settings(config).imageMaxPixels ==
           fujinet::platform::default_image_max_pixels());
-    config.imageMaxPixels = 300000;
+    config.image.maxPixels = 300000;
     CHECK(fujinet::core::network_device_settings(config).imageMaxPixels == 300000u);
 
     fujinet::core::FujinetCore core;
@@ -153,7 +155,7 @@ TEST_CASE("network.image_max_pixels 0 means the platform default when the device
     CHECK(NetworkDeviceDiagnosticsAccessor::image_max_pixels(*dev) == 300000u);
 }
 
-TEST_CASE("net.image.get shows the live cap, the stored value and the platform default")
+TEST_CASE("net.translation.get shows the live cap, the stored value and the platform default")
 {
     Fixture f;
     NetworkDeviceDiagnosticsAccessor::set_image_max_pixels(*f.dev, 490000);
@@ -163,14 +165,14 @@ TEST_CASE("net.image.get shows the live cap, the stored value and the platform d
     ctx->fuji = &fuji;
     auto provider = fujinet::diag::create_network_diagnostic_provider(f.core, ctx);
 
-    const auto r = run(*provider, {"net.image.get"});
+    const auto r = run(*provider, {"net.translation.get"});
     REQUIRE(r.status == fujinet::diag::DiagStatus::Ok);
     CHECK(r.text == "image_max_pixels: 490000\r\n"
                     "stored_image_max_pixels: default\r\n"
                     "platform_default_image_max_pixels: 16777216\r\n");
 }
 
-TEST_CASE("net.image.set updates the device cap and the stored config; net.image.save writes it")
+TEST_CASE("net.translation.set updates the device cap and the stored config; net.translation.save writes it")
 {
     Fixture f;
     auto storeOwned = std::make_unique<MemoryStore>();
@@ -180,37 +182,37 @@ TEST_CASE("net.image.set updates the device cap and the stored config; net.image
     ctx->fuji = &fuji;
     auto provider = fujinet::diag::create_network_diagnostic_provider(f.core, ctx);
 
-    CHECK(run(*provider, {"net.image.set", "max_pixels", "250000"}).status == fujinet::diag::DiagStatus::Ok);
+    CHECK(run(*provider, {"net.translation.set", "image_max_pixels", "250000"}).status == fujinet::diag::DiagStatus::Ok);
     CHECK(NetworkDeviceDiagnosticsAccessor::image_max_pixels(*f.dev) == 250000u);
-    CHECK(fuji.config().network.imageMaxPixels == 250000u);
-    CHECK(run(*provider, {"net.image.get"}).text.find("stored_image_max_pixels: 250000\r\n") != std::string::npos);
+    CHECK(fuji.config().translation.image.maxPixels == 250000u);
+    CHECK(run(*provider, {"net.translation.get"}).text.find("stored_image_max_pixels: 250000\r\n") != std::string::npos);
 
-    CHECK(run(*provider, {"net.image.save"}).status == fujinet::diag::DiagStatus::Ok);
+    CHECK(run(*provider, {"net.translation.save"}).status == fujinet::diag::DiagStatus::Ok);
     CHECK(store.saves == 1);
-    CHECK(store.saved.network.imageMaxPixels == 250000u);
+    CHECK(store.saved.translation.image.maxPixels == 250000u);
 
     // "default" stores 0 and goes back to the platform's value.
-    CHECK(run(*provider, {"net.image.set", "max_pixels", "default"}).status == fujinet::diag::DiagStatus::Ok);
+    CHECK(run(*provider, {"net.translation.set", "image_max_pixels", "default"}).status == fujinet::diag::DiagStatus::Ok);
     CHECK(NetworkDeviceDiagnosticsAccessor::image_max_pixels(*f.dev) == fujinet::platform::default_image_max_pixels());
-    CHECK(fuji.config().network.imageMaxPixels == 0u);
+    CHECK(fuji.config().translation.image.maxPixels == 0u);
 }
 
-TEST_CASE("net.image.set rejects bad values; without FujiDevice it is live only and save is not ready")
+TEST_CASE("net.translation.set rejects bad values; without FujiDevice it is live only and save is not ready")
 {
     Fixture f;
     auto provider = fujinet::diag::create_network_diagnostic_provider(f.core);
     const std::uint32_t before = NetworkDeviceDiagnosticsAccessor::image_max_pixels(*f.dev);
 
-    CHECK(run(*provider, {"net.image.set", "max_pixels", "0"}).status == fujinet::diag::DiagStatus::InvalidArgs);
-    CHECK(run(*provider, {"net.image.set", "max_pixels", "67108865"}).status == fujinet::diag::DiagStatus::InvalidArgs);
-    CHECK(run(*provider, {"net.image.set", "max_pixels", "lots"}).status == fujinet::diag::DiagStatus::InvalidArgs);
-    CHECK(run(*provider, {"net.image.set", "speed", "1"}).status == fujinet::diag::DiagStatus::InvalidArgs);
-    CHECK(run(*provider, {"net.image.set"}).status == fujinet::diag::DiagStatus::InvalidArgs);
+    CHECK(run(*provider, {"net.translation.set", "image_max_pixels", "0"}).status == fujinet::diag::DiagStatus::InvalidArgs);
+    CHECK(run(*provider, {"net.translation.set", "image_max_pixels", "67108865"}).status == fujinet::diag::DiagStatus::InvalidArgs);
+    CHECK(run(*provider, {"net.translation.set", "image_max_pixels", "lots"}).status == fujinet::diag::DiagStatus::InvalidArgs);
+    CHECK(run(*provider, {"net.translation.set", "speed", "1"}).status == fujinet::diag::DiagStatus::InvalidArgs);
+    CHECK(run(*provider, {"net.translation.set"}).status == fujinet::diag::DiagStatus::InvalidArgs);
     CHECK(NetworkDeviceDiagnosticsAccessor::image_max_pixels(*f.dev) == before);
 
-    CHECK(run(*provider, {"net.image.set", "max_pixels", "1000"}).status == fujinet::diag::DiagStatus::Ok);
+    CHECK(run(*provider, {"net.translation.set", "image_max_pixels", "1000"}).status == fujinet::diag::DiagStatus::Ok);
     CHECK(NetworkDeviceDiagnosticsAccessor::image_max_pixels(*f.dev) == 1000u);
-    const auto get = run(*provider, {"net.image.get"});
+    const auto get = run(*provider, {"net.translation.get"});
     CHECK(get.text.find("stored_image_max_pixels") == std::string::npos);
-    CHECK(run(*provider, {"net.image.save"}).status == fujinet::diag::DiagStatus::NotReady);
+    CHECK(run(*provider, {"net.translation.save"}).status == fujinet::diag::DiagStatus::NotReady);
 }

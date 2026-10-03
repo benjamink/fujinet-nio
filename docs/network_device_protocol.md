@@ -334,17 +334,21 @@ before those keys existed.
 ##### Limits and errors
 
 - Pixel cap: a source image whose width*height is above the cap returns
-  `Unsupported`. The cap is `network.image_max_pixels` in `fujinet.yaml`:
+  `Unsupported`. The cap is `translation.image.max_pixels` in `fujinet.yaml`:
 
   ```yaml
-  network:
-    image_max_pixels: 0   # 0 = the platform default: 490000 (700x700) on ESP32,
-                          # 16777216 (4096x4096) on POSIX
+  translation:
+    image:
+      max_pixels: 0   # 0 = the platform default: 490000 (700x700) on ESP32,
+                      # 16777216 (4096x4096) on POSIX
   ```
 
-  The console shows and changes it with `net.image.get`, `net.image.set`
-  and `net.image.save` (see [diagnostics](diagnostics.md)). A change applies
-  to translations configured after it.
+  The console shows and changes it with `net.translation.get`,
+  `net.translation.set image_max_pixels <n|default>` and
+  `net.translation.save` (see [diagnostics](diagnostics.md)). A change
+  applies to translations configured after it. The platform default is
+  `platform::default_image_max_pixels()`
+  (`include/fujinet/platform/image_translation.h`).
 - No side may be wider or taller than 8192 pixels (`STBI_MAX_DIMENSIONS`).
   stb_image rejects such a header like any other it cannot read.
 - An undecodable body, including one over 8192 pixels on a side, returns

@@ -21,14 +21,14 @@ void register_clock_device(FujinetCore& core);
 void register_clock_device(FujinetCore& core, config::FujiConfigStore* configStore);
 
 /// Register the NetworkDevice with the platform's protocol backends and the
-/// `network:` settings from fujinet.yaml.
-void register_network_device(FujinetCore& core, const config::NetworkConfig& config);
+/// `translation:` settings from fujinet.yaml.
+void register_network_device(FujinetCore& core, const config::ContentTranslationConfig& config);
 void register_network_device(FujinetCore& core,
                              io::ProtocolRegistry registry,
                              io::NetworkDeviceSettings settings);
 
-/// fujinet.yaml `network:` values with 0 ("default") replaced by the platform's.
-io::NetworkDeviceSettings network_device_settings(const config::NetworkConfig& config);
+/// fujinet.yaml `translation:` values with 0 ("default") replaced by the platform's.
+io::NetworkDeviceSettings network_device_settings(const config::ContentTranslationConfig& config);
 void register_disk_device(FujinetCore& core);
 void register_modem_device(FujinetCore& core);
 

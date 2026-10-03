@@ -14,17 +14,12 @@
 
 namespace fujinet::io {
 
-// Image pixel cap used when NetworkDevice is constructed without settings
-// (tests and other callers that pass none). It is not a platform value:
-// core::register_network_device() always passes network.image_max_pixels or,
-// when that is 0, the platform's own platform::default_image_max_pixels().
-inline constexpr std::uint32_t kFallbackImageMaxPixels = 700u * 700u;
-
-// Values NetworkDevice takes from the platform and fujinet.yaml (`network:`).
-// core::register_network_device() fills them in.
+// Values NetworkDevice takes from the platform and fujinet.yaml
+// (`translation:`). core::register_network_device() fills them in.
 struct NetworkDeviceSettings {
     // Largest source image (width*height) the Image translator decodes.
-    std::uint32_t imageMaxPixels{kFallbackImageMaxPixels};
+    // 0 (a device built without settings) refuses Image translation.
+    std::uint32_t imageMaxPixels{0};
 };
 
 // NetworkDevice: binary, chunked, handle-based protocol (v1).

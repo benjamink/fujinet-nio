@@ -4,6 +4,7 @@
 #include "fujinet/io/devices/network_device.h"
 #include "fujinet/io/protocol/wire_device_ids.h"
 #include "fujinet/core/logging.h"
+#include "fujinet/platform/image_translation.h"
 #include "fujinet/platform/network_registry.h"
 
 namespace fujinet::core {
@@ -16,11 +17,11 @@ using fujinet::io::protocol::to_device_id;
 
 static constexpr const char* TAG = "core";
 
-io::NetworkDeviceSettings network_device_settings(const config::NetworkConfig& config)
+io::NetworkDeviceSettings network_device_settings(const config::ContentTranslationConfig& config)
 {
     io::NetworkDeviceSettings settings;
-    settings.imageMaxPixels = config.imageMaxPixels != 0
-        ? config.imageMaxPixels
+    settings.imageMaxPixels = config.image.maxPixels != 0
+        ? config.image.maxPixels
         : fujinet::platform::default_image_max_pixels();
     return settings;
 }
@@ -43,7 +44,7 @@ void register_network_device(FujinetCore& core, ProtocolRegistry registry, io::N
     }
 }
 
-void register_network_device(FujinetCore& core, const config::NetworkConfig& config)
+void register_network_device(FujinetCore& core, const config::ContentTranslationConfig& config)
 {
     auto reg = fujinet::platform::make_default_network_registry();
     register_network_device(core, std::move(reg), network_device_settings(config));

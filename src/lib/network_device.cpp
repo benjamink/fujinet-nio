@@ -245,6 +245,10 @@ std::unique_ptr<IContentTranslator> NetworkDevice::make_translator(ContentTransl
         case ContentTranslationType::Json:
             return std::make_unique<JsonContentTranslator>();
         case ContentTranslationType::Image:
+            // No cap means no settings were given: refuse rather than guess one.
+            if (imageMaxPixels == 0) {
+                return nullptr;
+            }
             return std::make_unique<ImageContentTranslator>(imageMaxPixels);
         case ContentTranslationType::Xml:
         case ContentTranslationType::Rss:

@@ -1019,6 +1019,15 @@ fujinet::io::ProtocolRegistry make_image_registry(const std::uint8_t (&body)[N])
     return reg;
 }
 
+// Settings with an Image pixel cap large enough for every fixture. A device
+// built without settings refuses Image translation.
+fujinet::io::NetworkDeviceSettings image_settings()
+{
+    fujinet::io::NetworkDeviceSettings settings;
+    settings.imageMaxPixels = 4096u * 4096u;
+    return settings;
+}
+
 struct ReadResult {
     StatusCode status{StatusCode::InternalError};
     std::string data;
@@ -1093,7 +1102,7 @@ std::uint64_t info_content_length(NetworkDevice& dev, std::uint16_t deviceId, st
 
 TEST_CASE("NetworkDevice v1: Open-time Image translation reads back FORM ILBM")
 {
-    NetworkDevice dev(make_image_registry(fujinet::tests::image::kPngColour16x12));
+    NetworkDevice dev(make_image_registry(fujinet::tests::image::kPngColour16x12), image_settings());
     const auto deviceId = to_device_id(WireDeviceId::NetworkService);
 
     const std::uint16_t handle = open_handle_stub(
@@ -1114,7 +1123,7 @@ TEST_CASE("NetworkDevice v1: Open-time Image translation reads back FORM ILBM")
 
 TEST_CASE("NetworkDevice v1: Image selector errors fail at Open with InvalidRequest")
 {
-    NetworkDevice dev(make_image_registry(fujinet::tests::image::kPngColour16x12));
+    NetworkDevice dev(make_image_registry(fujinet::tests::image::kPngColour16x12), image_settings());
     const auto deviceId = to_device_id(WireDeviceId::NetworkService);
 
     for (const char* selector : {"colors=99", "bogus=1", "w=16,w=16", "bits=9", "fmt=png", "fmt="}) {
@@ -1132,7 +1141,7 @@ TEST_CASE("NetworkDevice v1: Image selector errors fail at Open with InvalidRequ
 
 TEST_CASE("NetworkDevice v1: Image accepts fmt=ilbm and bits at Open")
 {
-    NetworkDevice dev(make_image_registry(fujinet::tests::image::kPngColour16x12));
+    NetworkDevice dev(make_image_registry(fujinet::tests::image::kPngColour16x12), image_settings());
     const auto deviceId = to_device_id(WireDeviceId::NetworkService);
 
     const std::uint16_t handle = open_handle_stub(
@@ -1145,7 +1154,7 @@ TEST_CASE("NetworkDevice v1: Image accepts fmt=ilbm and bits at Open")
 
 TEST_CASE("NetworkDevice v1: undecodable Image body fails Read with InvalidRequest")
 {
-    NetworkDevice dev(make_stub_registry_http_only());
+    NetworkDevice dev(make_stub_registry_http_only(), image_settings());
     const auto deviceId = to_device_id(WireDeviceId::NetworkService);
 
     const std::uint16_t handle = open_handle_stub(
@@ -1156,7 +1165,7 @@ TEST_CASE("NetworkDevice v1: undecodable Image body fails Read with InvalidReque
 
 TEST_CASE("NetworkDevice v1: TranslateConfigure re-runs Image translation on the cached body")
 {
-    NetworkDevice dev(make_image_registry(fujinet::tests::image::kPngColour16x12));
+    NetworkDevice dev(make_image_registry(fujinet::tests::image::kPngColour16x12), image_settings());
     const auto deviceId = to_device_id(WireDeviceId::NetworkService);
 
     const std::uint16_t handle = open_handle_stub(
@@ -1190,6 +1199,16 @@ TEST_CASE("NetworkDevice v1: TranslateConfigure re-runs Image translation on the
     CHECK(read_all(dev, deviceId, handle) == first);
 
     CHECK(translate("fmt=gif").status == StatusCode::InvalidRequest);
+}
+
+TEST_CASE("NetworkDevice v1: without settings, Image translation is Unsupported at Open")
+{
+    NetworkDevice dev(make_image_registry(fujinet::tests::image::kPngColour16x12));
+    const auto deviceId = to_device_id(WireDeviceId::NetworkService);
+
+    const IOResponse resp = open_req(dev, deviceId, "http://example.com/a.png",
+                                     fujinet::io::ContentTranslationType::Image, "");
+    CHECK(resp.status == StatusCode::Unsupported);
 }
 
 TEST_CASE("NetworkDevice v1: the configured image pixel cap reaches the Image translator")

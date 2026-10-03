@@ -225,6 +225,7 @@ set(FUJINET_NIO_SOURCES
         src/platform/posix/fuji_device_factory.cpp
         src/platform/posix/hardware_caps.cpp
         src/platform/posix/http_network_protocol_curl.cpp
+        src/platform/posix/image_translation.cpp
         src/platform/posix/legacy/iwm_bus_hardware.cpp
         src/platform/posix/legacy/netsio_bus_hardware.cpp
         src/platform/posix/legacy/sio_bus_hardware.cpp

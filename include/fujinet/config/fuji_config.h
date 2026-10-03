@@ -102,11 +102,17 @@ struct ChannelConfig {
     PacketLinkConfig packetLink{};
 };
 
-/// NetworkDevice settings (docs/network_device_protocol.md).
-struct NetworkConfig {
+/// Image content translation (docs/network_device_protocol.md).
+struct ImageTranslationConfig {
     // Largest source image, as width*height, the Image translator decodes.
     // 0 = the platform's default (platform::default_image_max_pixels()).
-    std::uint32_t imageMaxPixels{0};
+    std::uint32_t maxPixels{0};
+};
+
+/// Content translation settings (`translation:`), one block per translator
+/// that has any.
+struct ContentTranslationConfig {
+    ImageTranslationConfig image;
 };
 
 // Unified config for the whole FujiNet instance.
@@ -121,7 +127,7 @@ struct FujiConfig {
     NetSioConfig         netsio;
     ClockConfig          clock;
     ChannelConfig        channel;
-    NetworkConfig        network;
+    ContentTranslationConfig translation;
 };
 
 

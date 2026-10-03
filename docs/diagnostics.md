@@ -73,13 +73,13 @@ It exposes:
 
 - `net.sessions` — one line per active network session
 - `net.close <handle|all>` — close a session handle (or all)
-- `net.image.get` — the Image translator's pixel cap: live, stored and the
-  platform default
-- `net.image.set max_pixels <pixels|default>` — change the cap for
-  translations configured from now on (1 to 67108864, which is 8192x8192);
-  with a FujiDevice it is also stored, and `default` stores 0
-- `net.image.save` — write `network` (`image_max_pixels`) into `fujinet.yaml`
-  (needs the FujiDevice from the Wi-Fi context)
+- `net.translation.get` — content translation settings: the Image
+  translator's pixel cap, live, stored and the platform default
+- `net.translation.set image_max_pixels <pixels|default>` — change the cap
+  for translations configured from now on (1 to 67108864, which is
+  8192x8192); with a FujiDevice it is also stored, and `default` stores 0
+- `net.translation.save` — write `translation` (`image.max_pixels`) into
+  `fujinet.yaml` (needs the FujiDevice from the Wi-Fi context)
 - `net.wifi.*` — scan, status, get, set and save (when a Wi-Fi context is given)
 
 `net.sessions` starts with an `active_sessions: N` line, then one line per
@@ -97,7 +97,7 @@ selector), `ready` (`1` once the body has been translated) and `translated`
 is printed as given and may contain `=` and `,`; it sits before `ready=`, so
 parse from the right.
 
-`net.image.get` prints three lines; `stored_image_max_pixels` is `default`
+`net.translation.get` prints three lines; `stored_image_max_pixels` is `default`
 when `fujinet.yaml` has 0, and is left out without a FujiDevice:
 
 ```
