@@ -26,6 +26,16 @@ struct NetworkDeviceSettings {
     core::LargeStackRunner largeStackRunner{nullptr};
 };
 
+// One finished translation, kept for diagnostics (net.translation.stats).
+struct TranslationLogEntry {
+    ContentTranslationType type{ContentTranslationType::None};
+    StatusCode status{StatusCode::Ok};
+    std::uint64_t bodyBytes{0};
+    std::uint64_t translatedBytes{0};
+    std::uint32_t elapsedMs{0};
+    TranslationStats stats;
+};
+
 // NetworkDevice: binary, chunked, handle-based protocol (v1).
 // Wire device ID: WireDeviceId::NetworkService (0xFD).
 // See docs/network_device_protocol.md.
@@ -87,6 +97,16 @@ private:
     
     // local monotonic tick counter incremented from poll()
     std::uint64_t _tickNow{0};
+
+    // The most recent translations, oldest overwritten first, and totals
+    // since start-up. Only diagnostics read them.
+    static constexpr std::size_t TRANSLATION_LOG_SIZE = 8;
+    std::array<TranslationLogEntry, TRANSLATION_LOG_SIZE> _translationLog{};
+    std::size_t _translationLogNext{0};
+    std::uint32_t _translationCount{0};
+    std::uint32_t _translationFailures{0};
+
+    void record_translation(TranslationLogEntry entry);
 
     static std::uint16_t make_handle(std::uint8_t idx, std::uint8_t gen) noexcept
     {

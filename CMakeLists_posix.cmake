@@ -231,6 +231,7 @@ set(FUJINET_NIO_SOURCES
         src/platform/posix/legacy/netsio_bus_hardware.cpp
         src/platform/posix/legacy/sio_bus_hardware.cpp
         src/platform/posix/logging.cpp
+        src/platform/posix/memory_stats.cpp
         src/platform/posix/network_registry.cpp
         src/platform/posix/pty_channel.cpp
         src/platform/posix/serial_channel.cpp

@@ -367,18 +367,28 @@ StatusCode NetworkDevice::finalize_translation(Session& s)
     // translator only reads it here, so one that can work from the buffer
     // (Image) does not hold a second copy of the body.
     // Translation runs inside this request and blocks the device until it
-    // finishes, so its time is logged (debug builds) for every translator.
-    [[maybe_unused]] const auto started = std::chrono::steady_clock::now();
+    // finishes, so its time is logged (debug builds) and kept in the
+    // translation log (net.translation.stats) for every translator.
+    const auto started = std::chrono::steady_clock::now();
     const StatusCode translateSt = s.translator->translate(
         reinterpret_cast<const std::uint8_t*>(s.responseBodyCache.data()),
         s.responseBodyCache.size());
-    [[maybe_unused]] const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+    const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - started).count();
     FN_LOGI("net", "translation type=%u: %zu bytes in %ld ms, status %u",
             static_cast<unsigned>(s.translation.type),
             s.responseBodyCache.size(),
             static_cast<long>(elapsedMs),
             static_cast<unsigned>(translateSt));
+
+    TranslationLogEntry entry;
+    entry.type = s.translation.type;
+    entry.status = translateSt;
+    entry.bodyBytes = s.responseBodyCache.size();
+    entry.translatedBytes = translateSt == StatusCode::Ok ? s.translator->translated_size() : 0;
+    entry.elapsedMs = static_cast<std::uint32_t>(elapsedMs);
+    entry.stats = s.translator->last_stats();
+    record_translation(std::move(entry));
     if (translateSt != StatusCode::Ok) {
         s.translationReady = false;
         return translateSt;
@@ -387,6 +397,16 @@ StatusCode NetworkDevice::finalize_translation(Session& s)
     s.translatedResultSize = s.translator->translated_size();
     s.translationReady = true;
     return StatusCode::Ok;
+}
+
+void NetworkDevice::record_translation(TranslationLogEntry entry)
+{
+    ++_translationCount;
+    if (entry.status != StatusCode::Ok) {
+        ++_translationFailures;
+    }
+    _translationLog[_translationLogNext] = std::move(entry);
+    _translationLogNext = (_translationLogNext + 1) % TRANSLATION_LOG_SIZE;
 }
 
 StatusCode NetworkDevice::ensure_translation_ready(Session& s)

@@ -131,6 +131,7 @@ idf_component_register(
         platform/esp32/legacy/sio_bus_hardware.cpp
         platform/esp32/log_output_tinyusb.cpp
         platform/esp32/logging.cpp
+        platform/esp32/memory_stats.cpp
         platform/esp32/network_registry.cpp
         platform/esp32/pinmap.cpp
         platform/esp32/sntp_service.cpp

@@ -4,6 +4,7 @@
 #include "fujinet/image/output_format.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <new>
 
@@ -91,16 +92,25 @@ void ImageContentTranslator::convert_job(void* job)
 // else touches this translator meanwhile.
 StatusCode ImageContentTranslator::convert(const std::uint8_t* data, std::size_t len)
 {
+    _stats = TranslationStats{};
     if (_runner == nullptr) {
         return convert_here(data, len);
     }
     ConvertJob job{this, data, len, StatusCode::InternalError};
-    if (!_runner(kConvertStackBytes, &ImageContentTranslator::convert_job, &job)) {
+    core::LargeStackReport report;
+    if (!_runner(kConvertStackBytes, &ImageContentTranslator::convert_job, &job, &report)) {
         FN_LOGW(TAG, "no %u-byte stack for the conversion", static_cast<unsigned>(kConvertStackBytes));
         std::vector<std::uint8_t>().swap(_out);
+        _stats.detail = "no " + std::to_string(kConvertStackBytes) + "-byte stack for the conversion";
         return StatusCode::Unsupported;
     }
+    _stats.stack = report;
     return job.result;
+}
+
+TranslationStats ImageContentTranslator::last_stats() const
+{
+    return _stats;
 }
 
 StatusCode ImageContentTranslator::convert_here(const std::uint8_t* data, std::size_t len)
@@ -113,7 +123,20 @@ StatusCode ImageContentTranslator::convert_here(const std::uint8_t* data, std::s
     image::IndexedImage indexed;
     image::Size source{0, 0};
     const StatusCode st = image::decode_to_indexed(data, len, _maxPixels, _options, indexed, source);
+    char detail[96];
     if (st != StatusCode::Ok) {
+        const std::uint64_t pixels = static_cast<std::uint64_t>(source.w) * static_cast<std::uint64_t>(source.h);
+        if (source.w == 0) {
+            std::snprintf(detail, sizeof detail, "not an image stb_image can read");
+        } else if (pixels > _maxPixels) {
+            std::snprintf(detail, sizeof detail, "%dx%d is %llu pixels, over the cap of %u",
+                          source.w, source.h, static_cast<unsigned long long>(pixels),
+                          static_cast<unsigned>(_maxPixels));
+        } else {
+            std::snprintf(detail, sizeof detail, "%dx%d: decode failed (out of memory or corrupt)",
+                          source.w, source.h);
+        }
+        _stats.detail = detail;
         FN_LOGW(TAG, "%dx%d source not converted (status %u, cap %u pixels)",
                 source.w,
                 source.h,
@@ -126,8 +149,16 @@ StatusCode ImageContentTranslator::convert_here(const std::uint8_t* data, std::s
         _out = _options.format->write(indexed, _options);
     } catch (const std::bad_alloc&) {
         std::vector<std::uint8_t>().swap(_out);
+        std::snprintf(detail, sizeof detail, "%dx%d -> %dx%d: out of memory writing the output",
+                      source.w, source.h, indexed.size.w, indexed.size.h);
+        _stats.detail = detail;
         return StatusCode::Unsupported;
     }
+    std::snprintf(detail, sizeof detail, "%dx%d -> %dx%d %.*s bits=%d colors=%d",
+                  source.w, source.h, indexed.size.w, indexed.size.h,
+                  static_cast<int>(_options.format->name.size()), _options.format->name.data(),
+                  _options.bits, _options.colors);
+    _stats.detail = detail;
     FN_LOGI(TAG, "%dx%d -> %dx%d %.*s bits=%d colors=%d, %u bytes",
             source.w, source.h,
             indexed.size.w, indexed.size.h,

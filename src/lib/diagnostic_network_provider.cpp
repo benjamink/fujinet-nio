@@ -11,6 +11,7 @@
 #include "fujinet/net/network_link.h"
 #include "fujinet/platform/image_translation.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
@@ -88,6 +89,23 @@ static const char* translation_name(std::uint8_t raw)
     return "unknown";
 }
 
+static const char* status_name(fujinet::io::StatusCode st)
+{
+    using fujinet::io::StatusCode;
+    switch (st) {
+        case StatusCode::Ok: return "ok";
+        case StatusCode::DeviceNotFound: return "device_not_found";
+        case StatusCode::InvalidRequest: return "invalid_request";
+        case StatusCode::DeviceBusy: return "device_busy";
+        case StatusCode::NotReady: return "not_ready";
+        case StatusCode::IOError: return "io_error";
+        case StatusCode::Timeout: return "timeout";
+        case StatusCode::InternalError: return "internal_error";
+        case StatusCode::Unsupported: return "unsupported";
+    }
+    return "unknown";
+}
+
 static fujinet::io::NetworkDevice* get_net_device(fujinet::core::FujinetCore& core)
 {
     using fujinet::io::protocol::WireDeviceId;
@@ -131,6 +149,12 @@ public:
             .summary = "set a content translation setting for new translations and store it",
             .usage = "net.translation.set image_max_pixels <pixels|default>",
             .safe = false,
+        });
+        out.push_back(DiagCommandSpec{
+            .name = "net.translation.stats",
+            .summary = "recent content translations: time, sizes, stack and heap used",
+            .usage = "net.translation.stats",
+            .safe = true,
         });
         out.push_back(DiagCommandSpec{
             .name = "net.translation.save",
@@ -193,6 +217,9 @@ public:
         }
         if (cmd == "net.translation.save") {
             return cmd_translation_save();
+        }
+        if (cmd == "net.translation.stats") {
+            return cmd_translation_stats();
         }
         if (_wifi_ctx) {
             if (cmd == "net.wifi.scan") {
@@ -599,6 +626,57 @@ private:
         }
         text += "\r\n";
         return DiagResult::ok(std::move(text));
+    }
+
+    // One line per logged translation, newest first. Stack and heap figures
+    // come from the platform's large-stack runner; 0 means not measured.
+    DiagResult cmd_translation_stats()
+    {
+        using fujinet::io::NetworkDeviceDiagnosticsAccessor;
+        auto* net = get_net_device(_core);
+        if (!net) {
+            return DiagResult::not_ready("NetworkDevice not registered");
+        }
+
+        const auto totals = NetworkDeviceDiagnosticsAccessor::translation_totals(*net);
+        std::string text;
+        text += "translations: " + std::to_string(totals.count) + "\r\n";
+        text += "failed: " + std::to_string(totals.failures) + "\r\n";
+
+        std::size_t maxStack = 0;
+        std::size_t maxHeapPeak = 0;
+        for (const auto& e : NetworkDeviceDiagnosticsAccessor::translation_log(*net)) {
+            const auto& st = e.stats.stack;
+            const std::size_t heapPeak = st.heapLowestFreeBytes != 0 && st.heapFreeBeforeBytes > st.heapLowestFreeBytes
+                ? st.heapFreeBeforeBytes - st.heapLowestFreeBytes
+                : 0;
+            maxStack = std::max(maxStack, st.stackUsedBytes);
+            maxHeapPeak = std::max(maxHeapPeak, heapPeak);
+
+            text += "type=";
+            text += translation_name(static_cast<std::uint8_t>(e.type));
+            text += " status=";
+            text += status_name(e.status);
+            text += " ms=" + std::to_string(e.elapsedMs);
+            text += " body=" + std::to_string(e.bodyBytes);
+            text += " out=" + std::to_string(e.translatedBytes);
+            text += " stack_used=" + std::to_string(st.stackUsedBytes);
+            text += " heap_peak=" + std::to_string(heapPeak);
+            text += " heap_free_before=" + std::to_string(st.heapFreeBeforeBytes);
+            text += " heap_largest_block=" + std::to_string(st.heapLargestBlockBytes);
+            if (!e.stats.detail.empty()) {
+                text += " : ";
+                text += e.stats.detail;
+            }
+            text += "\r\n";
+        }
+
+        DiagResult r = DiagResult::ok(std::move(text));
+        r.kv.emplace_back("translations", std::to_string(totals.count));
+        r.kv.emplace_back("failed", std::to_string(totals.failures));
+        r.kv.emplace_back("max_stack_used", std::to_string(maxStack));
+        r.kv.emplace_back("max_heap_peak", std::to_string(maxHeapPeak));
+        return r;
     }
 
     DiagResult cmd_translation_save()

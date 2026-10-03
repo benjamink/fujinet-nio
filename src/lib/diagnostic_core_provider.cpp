@@ -3,6 +3,7 @@
 #include "fujinet/build/profile.h"
 #include "fujinet/core/core.h"
 #include "fujinet/core/version.h"
+#include "fujinet/platform/memory_stats.h"
 
 #include <string>
 
@@ -30,6 +31,11 @@ public:
             .summary = "core runtime statistics",
             .usage = "core.stats",
         });
+        out.push_back(DiagCommandSpec{
+            .name = "core.mem",
+            .summary = "heap (internal and PSRAM) and the console task's stack headroom",
+            .usage = "core.mem",
+        });
     }
 
     DiagResult execute(const DiagArgsView& args) override
@@ -44,6 +50,9 @@ public:
         }
         if (cmd == "core.stats") {
             return cmd_stats();
+        }
+        if (cmd == "core.mem") {
+            return cmd_mem();
         }
 
         return DiagResult::not_found("unknown core command");
@@ -84,6 +93,33 @@ private:
         r.text += std::to_string(devs);
         r.text += "\r\n";
 
+        return r;
+    }
+
+    DiagResult cmd_mem()
+    {
+        const auto m = fujinet::platform::memory_stats();
+        if (!m.available) {
+            return DiagResult::ok("memory statistics are not available on this platform\r\n");
+        }
+
+        DiagResult r = DiagResult::ok();
+        auto line = [&r](const char* key, std::size_t value) {
+            r.text += key;
+            r.text += ": ";
+            r.text += std::to_string(value);
+            r.text += "\r\n";
+            r.kv.emplace_back(key, std::to_string(value));
+        };
+        line("internal_free", m.internalFreeBytes);
+        line("internal_min_free", m.internalMinFreeBytes);
+        line("internal_largest_block", m.internalLargestBlockBytes);
+        line("psram_free", m.psramFreeBytes);
+        line("psram_min_free", m.psramMinFreeBytes);
+        line("psram_largest_block", m.psramLargestBlockBytes);
+        r.text += "task: " + m.taskName + "\r\n";
+        r.kv.emplace_back("task", m.taskName);
+        line("task_stack_min_free", m.taskStackMinFreeBytes);
         return r;
     }
 

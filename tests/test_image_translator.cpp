@@ -184,15 +184,19 @@ namespace {
 std::size_t g_runnerStackBytes = 0;
 int g_runnerCalls = 0;
 
-bool recording_runner(std::size_t stackBytes, void (*fn)(void*), void* ctx)
+bool recording_runner(std::size_t stackBytes, void (*fn)(void*), void* ctx,
+                      fujinet::core::LargeStackReport* report)
 {
     g_runnerStackBytes = stackBytes;
     ++g_runnerCalls;
     fn(ctx);
+    if (report != nullptr) {
+        report->stackUsedBytes = 1234;
+    }
     return true;
 }
 
-bool failing_runner(std::size_t, void (*)(void*), void*)
+bool failing_runner(std::size_t, void (*)(void*), void*, fujinet::core::LargeStackReport*)
 {
     return false;
 }
@@ -200,11 +204,16 @@ bool failing_runner(std::size_t, void (*)(void*), void*)
 std::vector<std::uint8_t> convert_with(fujinet::core::LargeStackRunner runner,
                                        const std::uint8_t* body,
                                        std::size_t len,
-                                       StatusCode& status)
+                                       StatusCode& status,
+                                       fujinet::io::TranslationStats* stats = nullptr,
+                                       std::uint32_t maxPixels = kTestMaxPixels)
 {
-    ImageContentTranslator t(kTestMaxPixels, runner);
+    ImageContentTranslator t(maxPixels, runner);
     REQUIRE(t.configure(image_config("")) == StatusCode::Ok);
     status = t.translate(body, len);
+    if (stats != nullptr) {
+        *stats = t.last_stats();
+    }
     if (status != StatusCode::Ok) {
         return {};
     }
@@ -238,8 +247,34 @@ TEST_CASE("ImageTranslator runs each conversion through its runner, on kConvertS
 TEST_CASE("ImageTranslator: no stack for the conversion is Unsupported")
 {
     StatusCode status = StatusCode::Ok;
-    CHECK(convert_with(&failing_runner, kPngColour16x12, sizeof(kPngColour16x12), status).empty());
+    fujinet::io::TranslationStats stats;
+    CHECK(convert_with(&failing_runner, kPngColour16x12, sizeof(kPngColour16x12), status, &stats).empty());
     CHECK(status == StatusCode::Unsupported);
+    CHECK(stats.detail == "no 49152-byte stack for the conversion");
+}
+
+TEST_CASE("ImageTranslator::last_stats describes the conversion and carries the runner's report")
+{
+    StatusCode status = StatusCode::InternalError;
+    fujinet::io::TranslationStats stats;
+    convert_with(&recording_runner, kPngColour16x12, sizeof(kPngColour16x12), status, &stats);
+    REQUIRE(status == StatusCode::Ok);
+    CHECK(stats.detail == "16x12 -> 16x12 ilbm bits=4 colors=16");
+    CHECK(stats.stack.stackUsedBytes == 1234);
+
+    // Without a runner the conversion is still described, with no stack figures.
+    convert_with(nullptr, kPngColour16x12, sizeof(kPngColour16x12), status, &stats);
+    CHECK(stats.detail == "16x12 -> 16x12 ilbm bits=4 colors=16");
+    CHECK(stats.stack.stackUsedBytes == 0);
+
+    // Failures say why: over the pixel cap, or not an image at all.
+    convert_with(nullptr, kPngColour16x12, sizeof(kPngColour16x12), status, &stats, 100);
+    CHECK(status == StatusCode::Unsupported);
+    CHECK(stats.detail == "16x12 is 192 pixels, over the cap of 100");
+    const std::uint8_t junk[] = {1, 2, 3, 4};
+    convert_with(nullptr, junk, sizeof(junk), status, &stats);
+    CHECK(status == StatusCode::InvalidRequest);
+    CHECK(stats.detail == "not an image stb_image can read");
 }
 
 TEST_CASE("ImageTranslator: PNG, JPEG and GIF convert on the platform's kConvertStackBytes thread")
@@ -259,8 +294,13 @@ TEST_CASE("ImageTranslator: PNG, JPEG and GIF convert on the platform's kConvert
     for (const Case& c : cases) {
         CAPTURE(c.name);
         StatusCode status = StatusCode::InternalError;
-        const auto out = convert_with(&fujinet::platform::run_with_large_stack, c.data, c.len, status);
+        fujinet::io::TranslationStats stats;
+        const auto out = convert_with(&fujinet::platform::run_with_large_stack, c.data, c.len, status, &stats);
         CHECK(status == StatusCode::Ok);
+        // The POSIX runner measures how deep the painted stack went.
+        CHECK(stats.stack.stackUsedBytes > 0);
+        CHECK(stats.stack.stackUsedBytes < ImageContentTranslator::kConvertStackBytes);
+        MESSAGE(std::string(c.name), " conversion used ", stats.stack.stackUsedBytes, " bytes of stack");
         REQUIRE(out.size() > 12);
         CHECK(std::string(out.begin(), out.begin() + 4) == "FORM");
         CHECK(std::string(out.begin() + 8, out.begin() + 12) == "ILBM");

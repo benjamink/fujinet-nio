@@ -34,6 +34,7 @@ public:
     StatusCode finalize() override;
     StatusCode translate(const std::uint8_t* data, std::size_t len) override;
     std::uint64_t translated_size() const override;
+    TranslationStats last_stats() const override;
     StatusCode read(std::uint32_t offset,
                     std::uint8_t* out,
                     std::size_t maxBytes,
@@ -52,6 +53,7 @@ private:
     std::vector<std::uint8_t> _out;
     std::uint32_t _maxPixels;
     core::LargeStackRunner _runner;
+    TranslationStats _stats;
 };
 
 } // namespace fujinet::io
