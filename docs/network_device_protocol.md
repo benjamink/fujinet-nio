@@ -339,7 +339,7 @@ before those keys existed.
   ```yaml
   translation:
     image:
-      max_pixels: 0   # 0 = the platform default: 490000 (700x700) on ESP32,
+      max_pixels: 0   # 0 = the platform default: 1048576 (1024x1024) on ESP32,
                       # 16777216 (4096x4096) on POSIX
   ```
 
@@ -360,36 +360,41 @@ before those keys existed.
 Conversion runs synchronously inside the first `Info`, `Read` or
 `TranslateConfigure` that finds the whole body, so the device answers nothing
 else until it finishes. Allow for it in the client's timeout for that
-request. Firmware built with `FN_DEBUG` logs every translation's time under
-the `net` tag (`translation type=4: 10851 bytes in 107 ms, status 0`), and
-for an image the source and output size, format and size written under the
-`image` tag. Without `FN_DEBUG` every `FN_LOG*` call compiles away
-(`include/fujinet/core/logging.h`).
+request.
 
-- POSIX: a CMake `Debug` build defines `FN_DEBUG` (the `*-debug` presets).
-- ESP32: no PlatformIO env defines it, and `build_type = debug` does not
-  either. Add it in your `platformio.local.ini`, which `./build.sh -b` merges
-  into the generated `platformio.ini`:
+It runs on a temporary 48 KB stack (`ImageContentTranslator::kConvertStackBytes`)
+from `platform::run_with_large_stack()`: a task with its stack in PSRAM on
+ESP32, a thread on POSIX. The core task's own stack stays small. If that
+stack cannot be had (an ESP32 without PSRAM), the conversion returns
+`Unsupported`.
 
-  ```ini
-  [env]
-  build_flags +=
-      -DFN_DEBUG
-  ```
+`net.translation.stats` on the console shows, for each recent translation,
+the time it blocked the device, the stack it used and how far free heap fell
+(see [diagnostics](diagnostics.md)), in any build. Firmware built with
+`FN_DEBUG` also logs each one under the `net` tag
+(`translation type=4: 10851 bytes in 107 ms, status 0`) and the image
+details under `image`; without `FN_DEBUG` every `FN_LOG*` call compiles away
+(`include/fujinet/core/logging.h`). POSIX `*-debug` presets define it; on
+ESP32 add `-DFN_DEBUG` to `build_flags` in `platformio.local.ini`.
 
-  Rebuild and flash, then read the `net:` translation line on the board's
-  log output (the log UART on `*-uart-log-*` boards).
+Measured, ESP32-S3 N16R8 (`net.translation.stats`), xkcd #2636: a 740x1215
+8-bit gray PNG, 223158 bytes:
 
-| platform | source | selector | total |
-|---|---|---|---|
-| POSIX, Debug build, i7-13800H | 700x500 colour PNG | default (559x399, 16 colours) | 55-65 ms |
-| POSIX, Debug build, i7-13800H | 700x700 noise PNG (the ESP32 cap) | `up=1,w=1024,h=1024,colors=32` | about 410 ms |
-| ESP32-S3 | 700x700 noise PNG (the cap) | `up=1,w=1024,h=1024,colors=32` | **TODO: measure on S3 hardware** (needs `-DFN_DEBUG`, see above) |
+| selector | output | time | stack used | heap peak |
+|---|---|---|---|---|
+| `w=624,h=150,colors=12,base=4,par=1:2` | 182x149 | 954 ms | 9300 B | 3.7 MB |
+| `w=640,h=512,colors=16` | 311x511 | 2551 ms | 9300 B | 3.7 MB |
+| (over the old 490000-pixel cap) | rejected | 5 ms | 2376 B | 67 KB |
 
-The POSIX worst case at the ESP32 cap is already about 410 ms, so the S3
-figure may well be seconds. If it is, lower the ESP32 default cap
-(`platform::default_image_max_pixels()`) or make sure client timeouts for
-the first `Info`/`Read` allow for it.
+Free heap before was 8.2 MB, with a 7.6 MB largest block. Heap peak is about
+4 bytes per source pixel for gray or palette PNGs (about 6 for RGB, 8 for
+RGBA), which sets the ESP32 default cap at 1024x1024. The time beyond the
+decode grows with the output size; those runs predate the faster palette
+lookup (`NearestColour`), which cut that part by more than half on the host.
+
+Stack used on POSIX (64-bit, debug / release) for the 16x12 test images:
+PNG 14.8 / 16.0 KB, JPEG 17.6 / 7.4 KB, GIF 41.8 / 41.4 KB. GIF is why the
+stack is 48 KB.
 
 ##### Compatibility
 

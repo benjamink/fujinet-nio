@@ -10,6 +10,7 @@
 #include "fujinet/io/devices/fuji_device.h"
 #include "fujinet/io/devices/network_device_diagnostics.h"
 #include "fujinet/platform/image_translation.h"
+#include "fujinet/platform/large_stack.h"
 
 #include <memory>
 #include <string>
@@ -146,6 +147,9 @@ TEST_CASE("translation.image.max_pixels 0 means the platform default when the de
           fujinet::platform::default_image_max_pixels());
     config.image.maxPixels = 300000;
     CHECK(fujinet::core::network_device_settings(config).imageMaxPixels == 300000u);
+    // Image decoding runs on the platform's temporary large stack.
+    CHECK(fujinet::core::network_device_settings(config).largeStackRunner ==
+          &fujinet::platform::run_with_large_stack);
 
     fujinet::core::FujinetCore core;
     fujinet::core::register_network_device(core, config);
@@ -215,4 +219,38 @@ TEST_CASE("net.translation.set rejects bad values; without FujiDevice it is live
     const auto get = run(*provider, {"net.translation.get"});
     CHECK(get.text.find("stored_image_max_pixels") == std::string::npos);
     CHECK(run(*provider, {"net.translation.save"}).status == fujinet::diag::DiagStatus::NotReady);
+}
+
+TEST_CASE("net.translation.stats lists recent translations, newest first, with totals")
+{
+    Fixture f;
+    auto provider = fujinet::diag::create_network_diagnostic_provider(f.core);
+
+    auto stats = run(*provider, {"net.translation.stats"});
+    REQUIRE(stats.status == fujinet::diag::DiagStatus::Ok);
+    CHECK(stats.text == "translations: 0\r\nfailed: 0\r\n");
+
+    // A JSON translation that succeeds, then an Image one whose body (the
+    // stub's URL echo) is not an image.
+    const auto json = open_handle_stub(*f.dev, f.deviceId, "http://example.com/json", 1, 0, 0, {},
+                                       ContentTranslationType::Json, "/url");
+    REQUIRE(info_req(*f.dev, f.deviceId, json).status == StatusCode::Ok);
+    const auto image = open_handle_stub(*f.dev, f.deviceId, "http://example.com/a.png", 1, 0, 0, {},
+                                        ContentTranslationType::Image, "");
+    CHECK(info_req(*f.dev, f.deviceId, image).status == StatusCode::InvalidRequest);
+
+    stats = run(*provider, {"net.translation.stats"});
+    REQUIRE(stats.status == fujinet::diag::DiagStatus::Ok);
+    const std::string& t = stats.text;
+    CHECK(t.find("translations: 2\r\nfailed: 1\r\n") == 0);
+    const auto imageLine = t.find("type=image status=invalid_request ");
+    const auto jsonLine = t.find("type=json status=ok ");
+    REQUIRE(imageLine != std::string::npos);
+    REQUIRE(jsonLine != std::string::npos);
+    CHECK(imageLine < jsonLine);
+    CHECK(t.find(" : not an image stb_image can read\r\n") != std::string::npos);
+    // The device's settings use the platform runner, so the image conversion
+    // ran on the large stack and its depth was measured.
+    const std::string line = t.substr(imageLine, t.find("\r\n", imageLine) - imageLine);
+    CHECK(line.find(" stack_used=0 ") == std::string::npos);
 }

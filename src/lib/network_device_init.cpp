@@ -5,6 +5,7 @@
 #include "fujinet/io/protocol/wire_device_ids.h"
 #include "fujinet/core/logging.h"
 #include "fujinet/platform/image_translation.h"
+#include "fujinet/platform/large_stack.h"
 #include "fujinet/platform/network_registry.h"
 
 namespace fujinet::core {
@@ -23,6 +24,7 @@ io::NetworkDeviceSettings network_device_settings(const config::ContentTranslati
     settings.imageMaxPixels = config.image.maxPixels != 0
         ? config.image.maxPixels
         : fujinet::platform::default_image_max_pixels();
+    settings.largeStackRunner = &fujinet::platform::run_with_large_stack;
     return settings;
 }
 

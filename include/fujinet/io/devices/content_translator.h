@@ -1,12 +1,21 @@
 #pragma once
 
+#include "fujinet/core/large_stack.h"
 #include "fujinet/io/core/io_message.h"
 #include "fujinet/io/devices/network_translation.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace fujinet::io {
+
+// What a translator measured during its last translate() or finalize(), for
+// diagnostics (net.translation.stats).
+struct TranslationStats {
+    core::LargeStackReport stack;   // all 0 when it ran on the caller's stack
+    std::string detail;             // translator-specific, one line
+};
 
 class IContentTranslator {
 public:
@@ -39,6 +48,11 @@ public:
     }
 
     [[nodiscard]] virtual std::uint64_t translated_size() const = 0;
+
+    [[nodiscard]] virtual TranslationStats last_stats() const
+    {
+        return {};
+    }
 
     virtual StatusCode read(std::uint32_t offset,
                             std::uint8_t* out,

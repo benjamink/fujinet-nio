@@ -226,10 +226,12 @@ set(FUJINET_NIO_SOURCES
         src/platform/posix/hardware_caps.cpp
         src/platform/posix/http_network_protocol_curl.cpp
         src/platform/posix/image_translation.cpp
+        src/platform/posix/large_stack.cpp
         src/platform/posix/legacy/iwm_bus_hardware.cpp
         src/platform/posix/legacy/netsio_bus_hardware.cpp
         src/platform/posix/legacy/sio_bus_hardware.cpp
         src/platform/posix/logging.cpp
+        src/platform/posix/memory_stats.cpp
         src/platform/posix/network_registry.cpp
         src/platform/posix/pty_channel.cpp
         src/platform/posix/serial_channel.cpp
@@ -306,9 +308,13 @@ target_include_directories(fujinet-nio
 target_compile_features(fujinet-nio PUBLIC cxx_std_20)
 
 # Link yaml-cpp
+# platform::run_with_large_stack() runs work on a thread with a set stack size.
+find_package(Threads REQUIRED)
+
 target_link_libraries(fujinet-nio
     PUBLIC
         yaml-cpp
+        Threads::Threads
 )
 
 # --------------------------------------------------

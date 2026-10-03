@@ -1,5 +1,6 @@
 #pragma once
 
+#include "fujinet/core/large_stack.h"
 #include "fujinet/io/devices/virtual_device.h"
 #include "fujinet/io/devices/content_translator.h"
 #include "fujinet/io/devices/network_protocol.h"
@@ -20,6 +21,19 @@ struct NetworkDeviceSettings {
     // Largest source image (width*height) the Image translator decodes.
     // 0 (a device built without settings) refuses Image translation.
     std::uint32_t imageMaxPixels{0};
+    // Runs image decoding on a temporary large stack, so the core task's
+    // stack can stay small. nullptr decodes on the caller's stack.
+    core::LargeStackRunner largeStackRunner{nullptr};
+};
+
+// One finished translation, kept for diagnostics (net.translation.stats).
+struct TranslationLogEntry {
+    ContentTranslationType type{ContentTranslationType::None};
+    StatusCode status{StatusCode::Ok};
+    std::uint64_t bodyBytes{0};
+    std::uint64_t translatedBytes{0};
+    std::uint32_t elapsedMs{0};
+    TranslationStats stats;
 };
 
 // NetworkDevice: binary, chunked, handle-based protocol (v1).
@@ -84,6 +98,16 @@ private:
     // local monotonic tick counter incremented from poll()
     std::uint64_t _tickNow{0};
 
+    // The most recent translations, oldest overwritten first, and totals
+    // since start-up. Only diagnostics read them.
+    static constexpr std::size_t TRANSLATION_LOG_SIZE = 8;
+    std::array<TranslationLogEntry, TRANSLATION_LOG_SIZE> _translationLog{};
+    std::size_t _translationLogNext{0};
+    std::uint32_t _translationCount{0};
+    std::uint32_t _translationFailures{0};
+
+    void record_translation(TranslationLogEntry entry);
+
     static std::uint16_t make_handle(std::uint8_t idx, std::uint8_t gen) noexcept
     {
         return static_cast<std::uint16_t>((static_cast<std::uint16_t>(gen) << 8) | idx);
@@ -143,7 +167,7 @@ private:
 
     static bool translation_enabled(const Session& s) noexcept;
     static std::unique_ptr<IContentTranslator> make_translator(ContentTranslationType type,
-                                                               std::uint32_t imageMaxPixels);
+                                                               const NetworkDeviceSettings& settings);
     static void reset_translation(Session& s) noexcept;
 
     StatusCode configure_translation(Session& s, const TranslationConfig& config);

@@ -84,6 +84,31 @@ struct NetworkDeviceDiagnosticsAccessor {
         return true;
     }
 
+    struct TranslationTotals {
+        std::uint32_t count{0};
+        std::uint32_t failures{0};
+    };
+
+    static TranslationTotals translation_totals(const NetworkDevice& dev) noexcept
+    {
+        return {dev._translationCount, dev._translationFailures};
+    }
+
+    // The logged translations, newest first.
+    static std::vector<TranslationLogEntry> translation_log(const NetworkDevice& dev)
+    {
+        std::vector<TranslationLogEntry> out;
+        const std::size_t n = dev._translationCount < NetworkDevice::TRANSLATION_LOG_SIZE
+            ? dev._translationCount
+            : NetworkDevice::TRANSLATION_LOG_SIZE;
+        for (std::size_t i = 1; i <= n; ++i) {
+            const std::size_t at = (dev._translationLogNext + NetworkDevice::TRANSLATION_LOG_SIZE - i)
+                                 % NetworkDevice::TRANSLATION_LOG_SIZE;
+            out.push_back(dev._translationLog[at]);
+        }
+        return out;
+    }
+
     // Image translator pixel cap; a change applies to translations configured
     // afterwards (Open or TranslateConfigure), not to sessions already set up.
     static std::uint32_t image_max_pixels(const NetworkDevice& dev) noexcept

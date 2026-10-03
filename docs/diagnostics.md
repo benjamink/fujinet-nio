@@ -40,6 +40,20 @@ The built-in provider is created with:
 It currently exposes:
 - `core.info` — version + build profile
 - `core.stats` — tick count + registered device count
+- `core.mem` — free, lowest-ever and largest-block heap, internal RAM and
+  PSRAM separately, and the lowest free stack of the task running the console
+  (`fujinet_core` on ESP32). POSIX says it has no statistics. For example:
+
+```
+internal_free: 182340
+internal_min_free: 150212
+internal_largest_block: 110592
+psram_free: 7954820
+psram_min_free: 5112376
+psram_largest_block: 7864320
+task: fujinet_core
+task_stack_min_free: 2208
+```
 
 ### Built-in provider: `disk`
 
@@ -80,6 +94,8 @@ It exposes:
   8192x8192); with a FujiDevice it is also stored, and `default` stores 0
 - `net.translation.save` — write `translation` (`image.max_pixels`) into
   `fujinet.yaml` (needs the FujiDevice from the Wi-Fi context)
+- `net.translation.stats` — totals since start-up and the last 8
+  translations, newest first, with time, sizes, stack and heap used
 - `net.wifi.*` — scan, status, get, set and save (when a Wi-Fi context is given)
 
 `net.sessions` starts with an `active_sessions: N` line, then one line per
@@ -101,13 +117,36 @@ parse from the right.
 when `fujinet.yaml` has 0, and is left out without a FujiDevice:
 
 ```
-image_max_pixels: 490000
+image_max_pixels: 1048576
 stored_image_max_pixels: default
-platform_default_image_max_pixels: 490000
+platform_default_image_max_pixels: 1048576
 ```
 
 See [Image translation](network_device_protocol.md#image-translation-type-4)
 for what the cap limits.
+
+`net.translation.stats` reads (one translation per line, newest first):
+
+```
+translations: 3
+failed: 1
+type=image status=unsupported ms=5 body=223158 out=0 stack_used=2376 heap_peak=68608 heap_free_before=8173907 heap_largest_block=7602176 : 740x1215 is 899100 pixels, over the cap of 490000
+type=image status=ok ms=2310 body=19234 out=27082 stack_used=21344 heap_peak=1203456 heap_free_before=7954820 heap_largest_block=7864320 : 700x500 -> 319x228 ilbm bits=4 colors=16
+type=json status=ok ms=3 body=386 out=24 stack_used=0 heap_peak=0 heap_free_before=0 heap_largest_block=0
+```
+
+- `ms`: time the translation blocked the device; `body`/`out`: bytes in and
+  out.
+- `stack_used`, `heap_*`: measured by the platform's large-stack runner
+  (`platform::run_with_large_stack()`) around an image conversion, against
+  its 48 KB stack (`ImageContentTranslator::kConvertStackBytes`).
+  `heap_peak` is how far free heap (internal and PSRAM together) fell below
+  `heap_free_before` during the conversion. `0` means not measured: JSON
+  runs on the caller's stack, and POSIX measures only the stack. (The
+  figures above are illustrative.)
+- After ` : `, the translator's own one-line description: for an image the
+  source and output size and format, or why it failed (over the pixel cap,
+  not an image, out of memory).
 
 ---
 

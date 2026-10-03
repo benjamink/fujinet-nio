@@ -1,5 +1,6 @@
 #include "doctest.h"
 
+#include "fujinet/core/core.h"
 #include "fujinet/diag/diagnostic_provider.h"
 #include "fujinet/diag/diagnostic_registry.h"
 
@@ -163,4 +164,23 @@ TEST_CASE("DiagnosticRegistry dispatch stops at first provider that handles (non
 
 } // namespace fujinet::tests
 
+TEST_CASE("core.mem is listed, and says when the platform has no memory statistics")
+{
+    fujinet::core::FujinetCore core;
+    auto provider = fujinet::diag::create_core_diagnostic_provider(core);
 
+    std::vector<fujinet::diag::DiagCommandSpec> cmds;
+    provider->list_commands(cmds);
+    bool listed = false;
+    for (const auto& c : cmds) {
+        listed = listed || c.name == "core.mem";
+    }
+    CHECK(listed);
+
+    fujinet::diag::DiagArgsView args;
+    args.argv = {std::string_view("core.mem")};
+    const auto r = provider->execute(args);
+    CHECK(r.status == fujinet::diag::DiagStatus::Ok);
+    // POSIX reports nothing; ESP32 lists internal and PSRAM heap and the task's stack.
+    CHECK(r.text == "memory statistics are not available on this platform\r\n");
+}
