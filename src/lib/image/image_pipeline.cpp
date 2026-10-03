@@ -415,24 +415,6 @@ std::vector<Rgb> make_colour_palette(const std::vector<std::uint8_t>& rgb, const
 // Quantise and dither
 // ---------------------------------------------------------------------------
 
-// Nearest palette entry by squared distance weighted 3:6:1 (R:G:B).
-int nearest_colour(const std::vector<Rgb>& palette, int r, int g, int b)
-{
-    int best = 0;
-    long bestDistance = 1L << 30;
-    for (std::size_t i = 0; i < palette.size(); ++i) {
-        const long dr = r - palette[i].r;
-        const long dg = g - palette[i].g;
-        const long db = b - palette[i].b;
-        const long distance = 3 * dr * dr + 6 * dg * dg + db * db;
-        if (distance < bestDistance) {
-            bestDistance = distance;
-            best = static_cast<int>(i);
-        }
-    }
-    return best;
-}
-
 // Floyd-Steinberg keeps two rows of error terms, each with one spare pixel at
 // either end, and three channels per pixel. Errors are stored scaled by 16.
 class DitherErrors {
@@ -483,6 +465,92 @@ std::uint8_t snap_channel(int value, int bits)
     const int clamped = std::clamp(value, 0, 255);
     const int step = (clamped * levels + 127) / 255;
     return static_cast<std::uint8_t>((step * 255 + levels / 2) / levels);
+}
+
+int nearest_colour(const std::vector<Rgb>& palette, int r, int g, int b)
+{
+    int best = 0;
+    long bestDistance = 1L << 30;
+    for (std::size_t i = 0; i < palette.size(); ++i) {
+        const long dr = r - palette[i].r;
+        const long dg = g - palette[i].g;
+        const long db = b - palette[i].b;
+        const long distance = 3 * dr * dr + 6 * dg * dg + db * db;
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = static_cast<int>(i);
+        }
+    }
+    return best;
+}
+
+NearestColour::NearestColour(const std::vector<Rgb>& palette)
+    : _palette(palette)
+{
+    const bool gray = std::all_of(palette.begin(), palette.end(), [](const Rgb& c) {
+        return c.r == c.g && c.g == c.b;
+    });
+    if (gray && !palette.empty()) {
+        // For each s = 3r+6g+b, the entry minimising 10v^2 - 2vs; strict <
+        // keeps the lowest index on a tie, as nearest_colour() does.
+        _grayIndex.resize(10 * 255 + 1);
+        for (int sum = 0; sum <= 10 * 255; ++sum) {
+            int best = 0;
+            long bestScore = 0;
+            for (std::size_t i = 0; i < palette.size(); ++i) {
+                const long v = palette[i].r;
+                const long score = 10 * v * v - 2 * v * sum;
+                if (i == 0 || score < bestScore) {
+                    bestScore = score;
+                    best = static_cast<int>(i);
+                }
+            }
+            _grayIndex[static_cast<std::size_t>(sum)] = static_cast<std::uint8_t>(best);
+        }
+        return;
+    }
+    _cache.assign(std::size_t{1} << kCacheBits, CacheSlot{kEmpty, 0});
+}
+
+int NearestColour::find(int r, int g, int b)
+{
+    if (!_grayIndex.empty()) {
+        return _grayIndex[static_cast<std::size_t>(3 * r + 6 * g + b)];
+    }
+    const auto key = static_cast<std::uint32_t>((r << 16) | (g << 8) | b);
+    CacheSlot& slot = _cache[(key * 2654435761u) >> (32 - kCacheBits)];
+    if (slot.key != key) {
+        slot.key = key;
+        slot.index = static_cast<std::uint8_t>(search(r, g, b));
+    }
+    return slot.index;
+}
+
+// nearest_colour(), dropping an entry once its partial distance can no longer
+// beat the best (distance >= partial, and only a strictly smaller one wins).
+int NearestColour::search(int r, int g, int b) const
+{
+    int best = 0;
+    long bestDistance = 1L << 30;
+    for (std::size_t i = 0; i < _palette.size(); ++i) {
+        const long dg = g - _palette[i].g;
+        long distance = 6 * dg * dg;
+        if (distance >= bestDistance) {
+            continue;
+        }
+        const long dr = r - _palette[i].r;
+        distance += 3 * dr * dr;
+        if (distance >= bestDistance) {
+            continue;
+        }
+        const long db = b - _palette[i].b;
+        distance += db * db;
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = static_cast<int>(i);
+        }
+    }
+    return best;
 }
 
 bool parse_selector(const std::string& selector, Options& out)
@@ -601,6 +669,7 @@ std::vector<std::uint8_t> map_pixels(const std::vector<std::uint8_t>& rgb,
 {
     std::vector<std::uint8_t> pixels(static_cast<std::size_t>(size.w) * static_cast<std::size_t>(size.h));
     DitherErrors errors(size.w);
+    NearestColour nearest(palette);
     for (int y = 0; y < size.h; ++y) {
         errors.start_row(y);
         for (int x = 0; x < size.w; ++x) {
@@ -612,7 +681,7 @@ std::vector<std::uint8_t> map_pixels(const std::vector<std::uint8_t>& rgb,
                 const int carried = o.dither ? errors.carried(x, ch) : 0;
                 c[ch] = std::clamp(px[ch] + carried, 0, 255);
             }
-            const int index = nearest_colour(palette, c[0], c[1], c[2]);
+            const int index = nearest.find(c[0], c[1], c[2]);
             pixels[at] = static_cast<std::uint8_t>(index);
             if (!o.dither) {
                 continue;

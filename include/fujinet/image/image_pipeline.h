@@ -72,6 +72,39 @@ bool parse_selector(const std::string& selector, Options& out);
 // (0 and 255 included). bits=4 is the Amiga OCS grid, bits=8 leaves it alone.
 std::uint8_t snap_channel(int value, int bits);
 
+// Nearest palette entry by squared RGB distance weighted 3:6:1, lowest index
+// on a tie. The reference definition: map_pixels() uses NearestColour.
+int nearest_colour(const std::vector<Rgb>& palette, int r, int g, int b);
+
+// nearest_colour() for one palette, with identical results, but faster:
+// - All-gray palette (every entry r=g=b): the weighted distance to gray v is
+//   10v^2 - 2v(3r+6g+b) plus a term that does not depend on v, so the
+//   answer depends only on 3r+6g+b (0..2550). A table of those is built once.
+// - Otherwise: a direct-mapped cache keyed by the full colour (so a hit is
+//   exact), and a search that drops an entry as soon as its partial
+//   distance is no better than the best so far.
+// Channel values must be 0..255. The palette must outlive the matcher.
+class NearestColour {
+public:
+    explicit NearestColour(const std::vector<Rgb>& palette);
+
+    int find(int r, int g, int b);
+
+private:
+    int search(int r, int g, int b) const;
+
+    struct CacheSlot {
+        std::uint32_t key;      // r<<16 | g<<8 | b; kEmpty when unused
+        std::uint8_t index;
+    };
+    static constexpr std::uint32_t kEmpty = 0xFFFFFFFFu;
+    static constexpr int kCacheBits = 12;
+
+    const std::vector<Rgb>& _palette;
+    std::vector<std::uint8_t> _grayIndex;   // by 3r+6g+b; empty for a colour palette
+    std::vector<CacheSlot> _cache;
+};
+
 Size fit_size(int srcW, int srcH, const Options& o);
 std::vector<std::uint8_t> scale_rgb(const std::uint8_t* rgb, int srcW, int srcH, Size out);
 std::vector<Rgb> make_palette(const std::vector<std::uint8_t>& rgb, const Options& o);

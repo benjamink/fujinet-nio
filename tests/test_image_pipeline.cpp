@@ -368,3 +368,81 @@ TEST_CASE("ImagePipeline: decode_to_indexed reports the source size")
     CHECK(tooBig.w == 2);
     CHECK(tooBig.h == 1);
 }
+
+// ---------------------------------------------------------------------------
+// NearestColour: the fast matcher must agree with nearest_colour() exactly
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Every (r, g, b) on a grid with the given step, plus the extremes.
+template <typename Fn>
+void for_each_colour(int step, Fn fn)
+{
+    for (int r = 0; r <= 255; r += step) {
+        for (int g = 0; g <= 255; g += step) {
+            for (int b = 0; b <= 255; b += step) {
+                fn(r, g, b);
+            }
+        }
+    }
+    fn(255, 255, 255);
+}
+
+int count_mismatches(const std::vector<Rgb>& palette, int step)
+{
+    NearestColour matcher(palette);
+    int mismatches = 0;
+    for_each_colour(step, [&](int r, int g, int b) {
+        if (matcher.find(r, g, b) != nearest_colour(palette, r, g, b)) {
+            ++mismatches;
+        }
+    });
+    return mismatches;
+}
+
+} // namespace
+
+TEST_CASE("NearestColour matches nearest_colour for gray palettes, including ties and repeats")
+{
+    const std::vector<std::uint8_t> rgb = {0, 0, 0, 255, 255, 255};
+    for (int colors : {2, 3, 4, 12, 16, 32}) {
+        for (int bits : {1, 2, 4, 8}) {
+            CAPTURE(colors);
+            CAPTURE(bits);
+            Options o;
+            REQUIRE(parse_selector("mode=gray,colors=" + std::to_string(colors) + ",bits=" + std::to_string(bits), o));
+            // bits=1 with several colours repeats entries: the lowest index must win.
+            CHECK(count_mismatches(make_palette(rgb, o), 3) == 0);
+        }
+    }
+    // Hand-made gray palettes: unsorted, repeated and evenly tied entries.
+    CHECK(count_mismatches({{200, 200, 200}, {10, 10, 10}, {100, 100, 100}}, 3) == 0);
+    CHECK(count_mismatches({{0, 0, 0}, {0, 0, 0}, {255, 255, 255}, {255, 255, 255}}, 3) == 0);
+    CHECK(count_mismatches({{0, 0, 0}, {100, 100, 100}, {200, 200, 200}}, 1) == 0);
+}
+
+TEST_CASE("NearestColour matches nearest_colour for colour palettes, cached or not")
+{
+    const Rgb blocks[4] = {{200, 30, 60}, {20, 180, 90}, {40, 70, 220}, {230, 210, 20}};
+    std::vector<std::uint8_t> rgb;
+    for (int i = 0; i < 64; ++i) {
+        const Rgb& c = blocks[i % 4];
+        rgb.push_back(static_cast<std::uint8_t>(c.r + i));
+        rgb.push_back(static_cast<std::uint8_t>(c.g + i / 2));
+        rgb.push_back(static_cast<std::uint8_t>(c.b));
+    }
+    for (const char* selector : {"colors=4", "colors=16,bits=8", "colors=32,bits=2"}) {
+        CAPTURE(selector);
+        Options o;
+        REQUIRE(parse_selector(selector, o));
+        const auto palette = make_palette(rgb, o);
+        CHECK(count_mismatches(palette, 5) == 0);
+    }
+    // Ties between different colours, and a repeated query served from the cache.
+    const std::vector<Rgb> tied = {{0, 0, 0}, {0, 0, 0}, {255, 0, 0}, {0, 0, 255}, {128, 128, 128}};
+    CHECK(count_mismatches(tied, 5) == 0);
+    NearestColour matcher(tied);
+    CHECK(matcher.find(10, 10, 10) == nearest_colour(tied, 10, 10, 10));
+    CHECK(matcher.find(10, 10, 10) == nearest_colour(tied, 10, 10, 10));
+}
