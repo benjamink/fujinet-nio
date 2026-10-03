@@ -154,9 +154,13 @@ target_include_directories(fujinet-nio
 target_compile_features(fujinet-nio PUBLIC cxx_std_20)
 
 # Link yaml-cpp
+# platform::run_with_large_stack() runs work on a thread with a set stack size.
+find_package(Threads REQUIRED)
+
 target_link_libraries(fujinet-nio
     PUBLIC
         yaml-cpp
+        Threads::Threads
 )
 
 # --------------------------------------------------

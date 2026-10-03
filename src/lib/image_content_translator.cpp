@@ -16,8 +16,9 @@ namespace {
 
 } // namespace
 
-ImageContentTranslator::ImageContentTranslator(std::uint32_t maxPixels)
+ImageContentTranslator::ImageContentTranslator(std::uint32_t maxPixels, core::LargeStackRunner runner)
     : _maxPixels(maxPixels)
+    , _runner(runner)
 {}
 
 StatusCode ImageContentTranslator::configure(const TranslationConfig& config)
@@ -68,7 +69,41 @@ StatusCode ImageContentTranslator::translate(const std::uint8_t* data, std::size
     return convert(data, len);
 }
 
+namespace {
+
+struct ConvertJob {
+    ImageContentTranslator* translator;
+    const std::uint8_t* data;
+    std::size_t len;
+    StatusCode result;
+};
+
+} // namespace
+
+void ImageContentTranslator::convert_job(void* job)
+{
+    auto* j = static_cast<ConvertJob*>(job);
+    j->result = j->translator->convert_here(j->data, j->len);
+}
+
+// The core task's stack is far smaller than a conversion needs, so the
+// conversion runs on a temporary one. The caller waits for it, so nothing
+// else touches this translator meanwhile.
 StatusCode ImageContentTranslator::convert(const std::uint8_t* data, std::size_t len)
+{
+    if (_runner == nullptr) {
+        return convert_here(data, len);
+    }
+    ConvertJob job{this, data, len, StatusCode::InternalError};
+    if (!_runner(kConvertStackBytes, &ImageContentTranslator::convert_job, &job)) {
+        FN_LOGW(TAG, "no %u-byte stack for the conversion", static_cast<unsigned>(kConvertStackBytes));
+        std::vector<std::uint8_t>().swap(_out);
+        return StatusCode::Unsupported;
+    }
+    return job.result;
+}
+
+StatusCode ImageContentTranslator::convert_here(const std::uint8_t* data, std::size_t len)
 {
     std::vector<std::uint8_t>().swap(_out);
     if (_options.format == nullptr) {

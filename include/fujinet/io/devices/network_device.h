@@ -1,5 +1,6 @@
 #pragma once
 
+#include "fujinet/core/large_stack.h"
 #include "fujinet/io/devices/virtual_device.h"
 #include "fujinet/io/devices/content_translator.h"
 #include "fujinet/io/devices/network_protocol.h"
@@ -20,6 +21,9 @@ struct NetworkDeviceSettings {
     // Largest source image (width*height) the Image translator decodes.
     // 0 (a device built without settings) refuses Image translation.
     std::uint32_t imageMaxPixels{0};
+    // Runs image decoding on a temporary large stack, so the core task's
+    // stack can stay small. nullptr decodes on the caller's stack.
+    core::LargeStackRunner largeStackRunner{nullptr};
 };
 
 // NetworkDevice: binary, chunked, handle-based protocol (v1).
@@ -143,7 +147,7 @@ private:
 
     static bool translation_enabled(const Session& s) noexcept;
     static std::unique_ptr<IContentTranslator> make_translator(ContentTranslationType type,
-                                                               std::uint32_t imageMaxPixels);
+                                                               const NetworkDeviceSettings& settings);
     static void reset_translation(Session& s) noexcept;
 
     StatusCode configure_translation(Session& s, const TranslationConfig& config);

@@ -125,6 +125,7 @@ idf_component_register(
         platform/esp32/http_network_protocol_espidf.cpp
         platform/esp32/https_trust_esp32.cpp
         platform/esp32/image_translation.cpp
+        platform/esp32/large_stack.cpp
         platform/esp32/led_manager.cpp
         platform/esp32/legacy/iwm_bus_hardware.cpp
         platform/esp32/legacy/sio_bus_hardware.cpp

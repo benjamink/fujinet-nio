@@ -359,7 +359,12 @@ before those keys existed.
 
 Conversion runs synchronously inside the first `Info`, `Read` or
 `TranslateConfigure` that finds the whole body, so the device answers nothing
-else until it finishes. Allow for it in the client's timeout for that
+else until it finishes. It runs on a temporary 48 KB stack
+(`ImageContentTranslator::kConvertStackBytes`; stb_image's GIF decoder alone
+needs about 36 KB), from `platform::run_with_large_stack()`: a PSRAM-stack
+task on ESP32, a thread on POSIX. The core task's own stack stays small. If
+that stack cannot be had (an ESP32 without PSRAM), the conversion returns
+`Unsupported`. Allow for it in the client's timeout for that
 request. Firmware built with `FN_DEBUG` logs every translation's time under
 the `net` tag (`translation type=4: 10851 bytes in 107 ms, status 0`), and
 for an image the source and output size, format and size written under the

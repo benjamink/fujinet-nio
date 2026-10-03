@@ -237,7 +237,7 @@ bool NetworkDevice::translation_enabled(const Session& s) noexcept
 }
 
 std::unique_ptr<IContentTranslator> NetworkDevice::make_translator(ContentTranslationType type,
-                                                                   std::uint32_t imageMaxPixels)
+                                                                   const NetworkDeviceSettings& settings)
 {
     switch (type) {
         case ContentTranslationType::None:
@@ -246,10 +246,11 @@ std::unique_ptr<IContentTranslator> NetworkDevice::make_translator(ContentTransl
             return std::make_unique<JsonContentTranslator>();
         case ContentTranslationType::Image:
             // No cap means no settings were given: refuse rather than guess one.
-            if (imageMaxPixels == 0) {
+            if (settings.imageMaxPixels == 0) {
                 return nullptr;
             }
-            return std::make_unique<ImageContentTranslator>(imageMaxPixels);
+            return std::make_unique<ImageContentTranslator>(settings.imageMaxPixels,
+                                                            settings.largeStackRunner);
         case ContentTranslationType::Xml:
         case ContentTranslationType::Rss:
             return nullptr;
@@ -295,7 +296,7 @@ StatusCode NetworkDevice::configure_translation(Session& s, const TranslationCon
         return StatusCode::Ok;
     }
 
-    auto translator = make_translator(config.type, _settings.imageMaxPixels);
+    auto translator = make_translator(config.type, _settings);
     if (!translator) {
         return StatusCode::Unsupported;
     }

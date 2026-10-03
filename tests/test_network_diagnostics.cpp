@@ -10,6 +10,7 @@
 #include "fujinet/io/devices/fuji_device.h"
 #include "fujinet/io/devices/network_device_diagnostics.h"
 #include "fujinet/platform/image_translation.h"
+#include "fujinet/platform/large_stack.h"
 
 #include <memory>
 #include <string>
@@ -146,6 +147,9 @@ TEST_CASE("translation.image.max_pixels 0 means the platform default when the de
           fujinet::platform::default_image_max_pixels());
     config.image.maxPixels = 300000;
     CHECK(fujinet::core::network_device_settings(config).imageMaxPixels == 300000u);
+    // Image decoding runs on the platform's temporary large stack.
+    CHECK(fujinet::core::network_device_settings(config).largeStackRunner ==
+          &fujinet::platform::run_with_large_stack);
 
     fujinet::core::FujinetCore core;
     fujinet::core::register_network_device(core, config);

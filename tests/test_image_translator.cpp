@@ -4,6 +4,7 @@
 
 #include "fujinet/io/devices/image_content_translator.h"
 #include "fujinet/io/devices/network_translation.h"
+#include "fujinet/platform/large_stack.h"
 
 #include <cstdint>
 #include <string>
@@ -14,7 +15,10 @@ using fujinet::io::IContentTranslator;
 using fujinet::io::ImageContentTranslator;
 using fujinet::io::StatusCode;
 using fujinet::io::TranslationConfig;
+using fujinet::tests::image::kGif16x12;
+using fujinet::tests::image::kJpeg16x12;
 using fujinet::tests::image::kPng2x1;
+using fujinet::tests::image::kPngColour16x12;
 using fujinet::tests::image::kPng8192x1;
 using fujinet::tests::image::kPng8193x1;
 
@@ -169,4 +173,96 @@ TEST_CASE("ImageTranslator::translate decodes the caller's buffer without copyin
     const std::uint8_t junk[] = {1, 2, 3, 4};
     CHECK(viaView.translate(junk, sizeof(junk)) == StatusCode::InvalidRequest);
     CHECK(viaView.translated_size() == 0);
+}
+
+// ---------------------------------------------------------------------------
+// Conversion stack
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::size_t g_runnerStackBytes = 0;
+int g_runnerCalls = 0;
+
+bool recording_runner(std::size_t stackBytes, void (*fn)(void*), void* ctx)
+{
+    g_runnerStackBytes = stackBytes;
+    ++g_runnerCalls;
+    fn(ctx);
+    return true;
+}
+
+bool failing_runner(std::size_t, void (*)(void*), void*)
+{
+    return false;
+}
+
+std::vector<std::uint8_t> convert_with(fujinet::core::LargeStackRunner runner,
+                                       const std::uint8_t* body,
+                                       std::size_t len,
+                                       StatusCode& status)
+{
+    ImageContentTranslator t(kTestMaxPixels, runner);
+    REQUIRE(t.configure(image_config("")) == StatusCode::Ok);
+    status = t.translate(body, len);
+    if (status != StatusCode::Ok) {
+        return {};
+    }
+    return read_everything(t);
+}
+
+} // namespace
+
+TEST_CASE("ImageTranslator runs each conversion through its runner, on kConvertStackBytes")
+{
+    g_runnerStackBytes = 0;
+    g_runnerCalls = 0;
+    StatusCode viaRunner = StatusCode::InternalError;
+    StatusCode direct = StatusCode::InternalError;
+    const auto withRunner = convert_with(&recording_runner, kPngColour16x12, sizeof(kPngColour16x12), viaRunner);
+    const auto withoutRunner = convert_with(nullptr, kPngColour16x12, sizeof(kPngColour16x12), direct);
+
+    CHECK(g_runnerCalls == 1);
+    CHECK(g_runnerStackBytes == ImageContentTranslator::kConvertStackBytes);
+    CHECK(viaRunner == StatusCode::Ok);
+    CHECK(direct == StatusCode::Ok);
+    CHECK(withRunner == withoutRunner);
+
+    // The status of a failed conversion comes back through the runner too.
+    const std::uint8_t junk[] = {1, 2, 3, 4};
+    StatusCode bad = StatusCode::Ok;
+    CHECK(convert_with(&recording_runner, junk, sizeof(junk), bad).empty());
+    CHECK(bad == StatusCode::InvalidRequest);
+}
+
+TEST_CASE("ImageTranslator: no stack for the conversion is Unsupported")
+{
+    StatusCode status = StatusCode::Ok;
+    CHECK(convert_with(&failing_runner, kPngColour16x12, sizeof(kPngColour16x12), status).empty());
+    CHECK(status == StatusCode::Unsupported);
+}
+
+TEST_CASE("ImageTranslator: PNG, JPEG and GIF convert on the platform's kConvertStackBytes thread")
+{
+    // POSIX runs these on a pthread with exactly kConvertStackBytes of stack,
+    // so a decoder that outgrows it fails here, not first on an ESP32.
+    struct Case {
+        const char* name;
+        const std::uint8_t* data;
+        std::size_t len;
+    };
+    const Case cases[] = {
+        {"png", kPngColour16x12, sizeof(kPngColour16x12)},
+        {"jpeg", kJpeg16x12, sizeof(kJpeg16x12)},
+        {"gif", kGif16x12, sizeof(kGif16x12)},
+    };
+    for (const Case& c : cases) {
+        CAPTURE(c.name);
+        StatusCode status = StatusCode::InternalError;
+        const auto out = convert_with(&fujinet::platform::run_with_large_stack, c.data, c.len, status);
+        CHECK(status == StatusCode::Ok);
+        REQUIRE(out.size() > 12);
+        CHECK(std::string(out.begin(), out.begin() + 4) == "FORM");
+        CHECK(std::string(out.begin() + 8, out.begin() + 12) == "ILBM");
+    }
 }
