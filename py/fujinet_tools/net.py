@@ -307,6 +307,13 @@ def cmd_net_close(args) -> int:
         return 0
 
 
+SELECTOR_HELP = (
+    "Translator selector: a JSON Pointer for json; for image, key=value pairs such as "
+    "w=640,h=400,colors=16 (also base, par, dither, mode, up, bits=1..8 palette depth, "
+    "fmt=ilbm output format). Omit keys left at their default for older firmware."
+)
+
+
 def _translation_type_value(name: str) -> int:
     key = (name or "none").strip().lower()
     mapping = {
@@ -1063,7 +1070,7 @@ def register_subcommands(subparsers) -> None:
     pno.add_argument(
         "--selector",
         default="",
-        help="Translator selector (JSON Pointer for json; image selector such as w=640,h=400,colors=16 for image)",
+        help=SELECTOR_HELP,
     )
     pno.add_argument("url")
     pno.set_defaults(fn=cmd_net_open)
@@ -1128,7 +1135,7 @@ def register_subcommands(subparsers) -> None:
     png.add_argument(
         "--selector",
         default="",
-        help="Translator selector (JSON Pointer for json; image selector such as w=640,h=400,colors=16 for image)",
+        help=SELECTOR_HELP,
     )
     png.add_argument("url")
     png.set_defaults(fn=cmd_net_get)
@@ -1162,7 +1169,7 @@ def register_subcommands(subparsers) -> None:
     pnh.add_argument(
         "--selector",
         default="",
-        help="Translator selector (JSON Pointer for json; image selector such as w=640,h=400,colors=16 for image)",
+        help=SELECTOR_HELP,
     )
     pnh.add_argument("url")
     pnh.set_defaults(fn=cmd_net_head)
@@ -1237,7 +1244,7 @@ def register_subcommands(subparsers) -> None:
     pns.add_argument(
         "--selector",
         default="",
-        help="Translator selector (JSON Pointer for json; image selector such as w=640,h=400,colors=16 for image)",
+        help=SELECTOR_HELP,
     )
     pns.add_argument("url")
     pns.set_defaults(fn=cmd_net_send)
@@ -1253,7 +1260,7 @@ def register_subcommands(subparsers) -> None:
     ptr.add_argument(
         "--selector",
         default="",
-        help="Translator selector (JSON Pointer for json; image selector such as w=640,h=400,colors=16 for image)",
+        help=SELECTOR_HELP,
     )
     ptr.add_argument("--timeout", type=float, default=10.0)
     ptr.set_defaults(fn=cmd_net_translate)

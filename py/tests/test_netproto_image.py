@@ -59,6 +59,21 @@ class ImageTranslationTests(unittest.TestCase):
             ns = parser.parse_args(argv)
             self.assertEqual(ns.content_type, "image")
 
+    def test_selector_help_names_fmt_and_bits(self) -> None:
+        self.assertIn("fmt=ilbm", net.SELECTOR_HELP)
+        self.assertIn("bits=", net.SELECTOR_HELP)
+
+    def test_open_request_carries_fmt_and_bits_unchanged(self) -> None:
+        selector = "fmt=ilbm,bits=8,colors=32"
+        req = np.build_open_req(
+            method=1,
+            flags=0,
+            url="http://x/a.png",
+            translation_type=np.TRANSLATION_IMAGE,
+            translation_selector=selector,
+        )
+        self.assertTrue(req.endswith(bytes([len(selector), 0]) + selector.encode()))
+
 
 if __name__ == "__main__":
     unittest.main()
