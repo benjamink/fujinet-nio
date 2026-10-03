@@ -85,6 +85,8 @@ bool configs_equal(const FujiConfig& a, const FujiConfig& b)
     if (a.channel.packetLink.capacity != b.channel.packetLink.capacity) return false;
     if (a.channel.packetLink.recordTimeoutMs != b.channel.packetLink.recordTimeoutMs) return false;
 
+    if (a.network.imageMaxPixels != b.network.imageMaxPixels) return false;
+
     return true;
 }
 
@@ -376,6 +378,7 @@ TEST_CASE("YamlFujiConfigStoreFs: Round-trip save and load")
     original.printer.enabled = true;
     original.channel.packetLink.capacity = 1024;
     original.channel.packetLink.recordTimeoutMs = 2500;
+    original.network.imageMaxPixels = 640u * 480u;
 
     store.save(original);
 
@@ -904,4 +907,24 @@ TEST_CASE("YamlFujiConfigStoreFs: Round-trip save and load with ptyPath")
     FujiConfig loaded = store.load();
 
     CHECK(configs_equal(original, loaded));
+}
+
+TEST_CASE("YamlFujiConfigStoreFs: network image_max_pixels")
+{
+    auto primary = std::make_unique<fujinet::tests::MemoryFileSystem>("primary");
+    create_file(*primary, "/fujinet.yaml", "network:\n  image_max_pixels: 250000\n");
+
+    YamlFujiConfigStoreFs store(primary.get(), nullptr, "fujinet.yaml");
+    CHECK(store.load().network.imageMaxPixels == 250000u);
+
+    // Absent: 0, meaning the platform's default.
+    create_file(*primary, "/fujinet.yaml", "fujinet:\n  device_name: x\n");
+    CHECK(store.load().network.imageMaxPixels == 0u);
+
+    FujiConfig cfg;
+    cfg.network.imageMaxPixels = 123456;
+    store.save(cfg);
+    const std::string text = read_file(*primary, "/fujinet.yaml");
+    CHECK(text.find("network:") != std::string::npos);
+    CHECK(text.find("image_max_pixels: 123456") != std::string::npos);
 }

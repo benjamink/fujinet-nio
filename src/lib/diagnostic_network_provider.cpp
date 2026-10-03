@@ -8,6 +8,7 @@
 #include "fujinet/io/devices/network_device_diagnostics.h"
 #include "fujinet/io/protocol/wire_device_ids.h"
 #include "fujinet/net/network_link.h"
+#include "fujinet/platform/network_registry.h"
 
 #include <cctype>
 #include <cstdint>
@@ -112,6 +113,24 @@ public:
             .usage = "net.close <handle|all>",
             .safe = false,
         });
+        out.push_back(DiagCommandSpec{
+            .name = "net.image.get",
+            .summary = "show the Image translator's pixel cap (live, stored and platform default)",
+            .usage = "net.image.get",
+            .safe = true,
+        });
+        out.push_back(DiagCommandSpec{
+            .name = "net.image.set",
+            .summary = "set the Image translator's pixel cap for new translations and store it",
+            .usage = "net.image.set max_pixels <pixels|default>",
+            .safe = false,
+        });
+        out.push_back(DiagCommandSpec{
+            .name = "net.image.save",
+            .summary = "write network settings (image_max_pixels) into fujinet.yaml (requires FujiDevice)",
+            .usage = "net.image.save",
+            .safe = false,
+        });
         if (_wifi_ctx) {
             out.push_back(DiagCommandSpec{
                 .name = "net.wifi.scan",
@@ -158,6 +177,15 @@ public:
         }
         if (cmd == "net.close") {
             return cmd_close(args);
+        }
+        if (cmd == "net.image.get") {
+            return cmd_image_get();
+        }
+        if (cmd == "net.image.set") {
+            return cmd_image_set(args);
+        }
+        if (cmd == "net.image.save") {
+            return cmd_image_save();
         }
         if (_wifi_ctx) {
             if (cmd == "net.wifi.scan") {
@@ -499,6 +527,85 @@ private:
         DiagResult r = DiagResult::ok("closed: " + hex4(handle) + "\r\n");
         r.kv.emplace_back("closed_handle", hex4(handle));
         return r;
+    }
+
+    // Upper bound for net.image.set: stb_image refuses sides above
+    // STBI_MAX_DIMENSIONS (8192), so a larger cap could never be reached.
+    static constexpr std::uint32_t kMaxImagePixels = 8192u * 8192u;
+
+    DiagResult cmd_image_get()
+    {
+        auto* net = get_net_device(_core);
+        if (!net) {
+            return DiagResult::not_ready("NetworkDevice not registered");
+        }
+
+        const std::uint32_t live = fujinet::io::NetworkDeviceDiagnosticsAccessor::image_max_pixels(*net);
+        std::string text;
+        text += "image_max_pixels: ";
+        text += std::to_string(live);
+        text += "\r\n";
+        if (auto* fuji = fuji_device()) {
+            const std::uint32_t stored = fuji->config().network.imageMaxPixels;
+            text += "stored_image_max_pixels: ";
+            text += stored == 0 ? std::string("default") : std::to_string(stored);
+            text += "\r\n";
+        }
+        text += "platform_default_image_max_pixels: ";
+        text += std::to_string(fujinet::platform::default_image_max_pixels());
+        text += "\r\n";
+
+        DiagResult r = DiagResult::ok(std::move(text));
+        r.kv.emplace_back("image_max_pixels", std::to_string(live));
+        return r;
+    }
+
+    DiagResult cmd_image_set(const DiagArgsView& args)
+    {
+        if (args.argv.size() < 3) {
+            return DiagResult::invalid_args("usage: net.image.set max_pixels <pixels|default>");
+        }
+        if (!ascii_iequals(args.argv[1], "max_pixels")) {
+            return DiagResult::invalid_args("unknown field (max_pixels)");
+        }
+
+        // `default` stores 0, which means the platform's value.
+        std::uint32_t stored = 0;
+        if (!ascii_iequals(args.argv[2], "default")) {
+            if (!parse_decimal_u32(args.argv[2], stored) || stored < 1 || stored > kMaxImagePixels) {
+                return DiagResult::invalid_args("max_pixels must be 1.." + std::to_string(kMaxImagePixels) +
+                                                " or default");
+            }
+        }
+        const std::uint32_t live = stored != 0 ? stored : fujinet::platform::default_image_max_pixels();
+
+        auto* net = get_net_device(_core);
+        if (!net) {
+            return DiagResult::not_ready("NetworkDevice not registered");
+        }
+        fujinet::io::NetworkDeviceDiagnosticsAccessor::set_image_max_pixels(*net, live);
+
+        std::string text = "image_max_pixels set to " + std::to_string(live) + " for new translations";
+        if (auto* fuji = fuji_device()) {
+            fuji->config_mut().network.imageMaxPixels = stored;
+            text += "; net.image.save to keep it";
+        }
+        text += "\r\n";
+        return DiagResult::ok(std::move(text));
+    }
+
+    DiagResult cmd_image_save()
+    {
+        auto* fuji = fuji_device();
+        if (!fuji) {
+            return DiagResult::not_ready("FujiDevice not available");
+        }
+        auto* store = fuji->config_store();
+        if (!store) {
+            return DiagResult::not_ready("config store not available");
+        }
+        store->save(fuji->config());
+        return DiagResult::ok("saved network settings to config store\r\n");
     }
 
     fujinet::core::FujinetCore& _core;

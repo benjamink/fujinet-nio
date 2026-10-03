@@ -25,7 +25,7 @@ using fujinet::tests::image::kPngColour16x12;
 
 std::vector<std::uint8_t> translate_colour_fixture(const char* selector)
 {
-    ImageContentTranslator t;
+    ImageContentTranslator t(4096u * 4096u);
     TranslationConfig config;
     config.type = ContentTranslationType::Image;
     config.selector = selector;

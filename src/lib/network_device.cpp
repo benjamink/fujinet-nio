@@ -53,8 +53,9 @@ static bool extract_scheme_lower(std::string_view url, std::string& outSchemeLow
     return !outSchemeLower.empty();
 }
 
-NetworkDevice::NetworkDevice(ProtocolRegistry registry)
+NetworkDevice::NetworkDevice(ProtocolRegistry registry, NetworkDeviceSettings settings)
     : _registry(std::move(registry))
+    , _settings(settings)
 {
 }
 
@@ -234,7 +235,8 @@ bool NetworkDevice::translation_enabled(const Session& s) noexcept
     return s.translation.enabled() && static_cast<bool>(s.translator);
 }
 
-std::unique_ptr<IContentTranslator> NetworkDevice::make_translator(ContentTranslationType type)
+std::unique_ptr<IContentTranslator> NetworkDevice::make_translator(ContentTranslationType type,
+                                                                   std::uint32_t imageMaxPixels)
 {
     switch (type) {
         case ContentTranslationType::None:
@@ -242,7 +244,7 @@ std::unique_ptr<IContentTranslator> NetworkDevice::make_translator(ContentTransl
         case ContentTranslationType::Json:
             return std::make_unique<JsonContentTranslator>();
         case ContentTranslationType::Image:
-            return std::make_unique<ImageContentTranslator>();
+            return std::make_unique<ImageContentTranslator>(imageMaxPixels);
         case ContentTranslationType::Xml:
         case ContentTranslationType::Rss:
             return nullptr;
@@ -288,7 +290,7 @@ StatusCode NetworkDevice::configure_translation(Session& s, const TranslationCon
         return StatusCode::Ok;
     }
 
-    auto translator = make_translator(config.type);
+    auto translator = make_translator(config.type, _settings.imageMaxPixels);
     if (!translator) {
         return StatusCode::Unsupported;
     }

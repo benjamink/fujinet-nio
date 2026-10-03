@@ -84,6 +84,18 @@ struct NetworkDeviceDiagnosticsAccessor {
         return true;
     }
 
+    // Image translator pixel cap; a change applies to translations configured
+    // afterwards (Open or TranslateConfigure), not to sessions already set up.
+    static std::uint32_t image_max_pixels(const NetworkDevice& dev) noexcept
+    {
+        return dev._settings.imageMaxPixels;
+    }
+
+    static void set_image_max_pixels(NetworkDevice& dev, std::uint32_t maxPixels) noexcept
+    {
+        dev._settings.imageMaxPixels = maxPixels;
+    }
+
     static std::size_t close_all(NetworkDevice& dev) noexcept
     {
         std::size_t n = 0;

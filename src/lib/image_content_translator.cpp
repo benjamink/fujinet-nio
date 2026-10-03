@@ -23,6 +23,10 @@ std::vector<std::uint8_t> write_output(const image::IndexedImage& indexed, const
 
 } // namespace
 
+ImageContentTranslator::ImageContentTranslator(std::uint32_t maxPixels)
+    : _maxPixels(maxPixels)
+{}
+
 StatusCode ImageContentTranslator::configure(const TranslationConfig& config)
 {
     if (config.type != ContentTranslationType::Image) {

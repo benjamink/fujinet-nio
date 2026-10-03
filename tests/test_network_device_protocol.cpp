@@ -1191,3 +1191,23 @@ TEST_CASE("NetworkDevice v1: TranslateConfigure re-runs Image translation on the
 
     CHECK(translate("fmt=gif").status == StatusCode::InvalidRequest);
 }
+
+TEST_CASE("NetworkDevice v1: the configured image pixel cap reaches the Image translator")
+{
+    const auto deviceId = to_device_id(WireDeviceId::NetworkService);
+    const auto& png = fujinet::tests::image::kPngColour16x12;    // 16x12 = 192 pixels
+
+    auto open_and_read = [&](std::uint32_t cap) {
+        fujinet::io::NetworkDeviceSettings settings;
+        settings.imageMaxPixels = cap;
+        NetworkDevice dev(make_image_registry(png), settings);
+        const std::uint16_t handle = open_handle_stub(
+            dev, deviceId, "http://example.com/a.png", 1, 0, 0, {},
+            fujinet::io::ContentTranslationType::Image, "");
+        return read_req(dev, deviceId, handle, 0, 64).status;
+    };
+
+    CHECK(open_and_read(192) == StatusCode::Ok);
+    CHECK(open_and_read(191) == StatusCode::Unsupported);
+    CHECK(open_and_read(16u * 1024u * 1024u) == StatusCode::Ok);
+}

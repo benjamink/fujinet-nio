@@ -14,12 +14,22 @@
 
 namespace fujinet::io {
 
+// Values NetworkDevice takes from the platform and fujinet.yaml (`network:`).
+// core::register_network_device() fills them in.
+struct NetworkDeviceSettings {
+    // Largest source image (width*height) the Image translator decodes. The
+    // default here is only for callers that pass no settings, such as tests;
+    // the composition root passes network.image_max_pixels or, when that is
+    // 0, platform::default_image_max_pixels().
+    std::uint32_t imageMaxPixels{700u * 700u};
+};
+
 // NetworkDevice: binary, chunked, handle-based protocol (v1).
 // Wire device ID: WireDeviceId::NetworkService (0xFD).
 // See docs/network_device_protocol.md.
 class NetworkDevice : public VirtualDevice {
 public:
-    explicit NetworkDevice(ProtocolRegistry registry);
+    explicit NetworkDevice(ProtocolRegistry registry, NetworkDeviceSettings settings = {});
 
     IOResponse handle(const IORequest& request) override;
     void poll() override;
@@ -71,6 +81,7 @@ private:
 
     std::array<Session, MAX_SESSIONS> _sessions{};
     ProtocolRegistry _registry;
+    NetworkDeviceSettings _settings;
     
     // local monotonic tick counter incremented from poll()
     std::uint64_t _tickNow{0};
@@ -133,7 +144,8 @@ private:
     }
 
     static bool translation_enabled(const Session& s) noexcept;
-    static std::unique_ptr<IContentTranslator> make_translator(ContentTranslationType type);
+    static std::unique_ptr<IContentTranslator> make_translator(ContentTranslationType type,
+                                                               std::uint32_t imageMaxPixels);
     static void reset_translation(Session& s) noexcept;
 
     StatusCode configure_translation(Session& s, const TranslationConfig& config);

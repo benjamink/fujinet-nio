@@ -44,4 +44,10 @@ io::ProtocolRegistry make_default_network_registry()
     return r;
 }
 
+std::uint32_t default_image_max_pixels()
+{
+    // Memory is plentiful; this bounds the work per image, not the RAM.
+    return 4096u * 4096u;
+}
+
 } // namespace fujinet::platform

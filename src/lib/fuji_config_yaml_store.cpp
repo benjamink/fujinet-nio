@@ -210,6 +210,11 @@ static void from_yaml(const YAML::Node& node, ChannelConfig& out)
     }
 }
 
+static void from_yaml(const YAML::Node& node, NetworkConfig& out)
+{
+    out.imageMaxPixels = get_or<std::uint32_t>(node, "image_max_pixels", 0);
+}
+
 // Top-level FujiConfig mapper.
 static void from_yaml(const YAML::Node& root, FujiConfig& cfg)
 {
@@ -241,6 +246,10 @@ static void from_yaml(const YAML::Node& root, FujiConfig& cfg)
 
     if (auto n = root["channel"]) {
         from_yaml(n, cfg.channel);
+    }
+
+    if (auto n = root["network"]) {
+        from_yaml(n, cfg.network);
     }
 }
 
@@ -324,6 +333,11 @@ static void to_yaml(YAML::Emitter& out, const FujiConfig& cfg)
      out << YAML::Key << "record_timeout_ms" << YAML::Value << cfg.channel.packetLink.recordTimeoutMs;
      out << YAML::EndMap; // packet_link
      out << YAML::EndMap;
+
+    // network:
+    out << YAML::Key << "network" << YAML::Value << YAML::BeginMap;
+    out << YAML::Key << "image_max_pixels" << YAML::Value << cfg.network.imageMaxPixels;
+    out << YAML::EndMap;
 
     out << YAML::EndMap; // root
 }

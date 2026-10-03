@@ -16,6 +16,9 @@ using fujinet::tests::image::kPng2x1;
 
 namespace {
 
+// Large enough for every fixture; the cap tests set their own.
+constexpr std::uint32_t kTestMaxPixels = 4096u * 4096u;
+
 TranslationConfig image_config(const char* selector)
 {
     TranslationConfig config;
@@ -28,7 +31,7 @@ TranslationConfig image_config(const char* selector)
 
 TEST_CASE("ImageTranslator converts PNG to ILBM")
 {
-    ImageContentTranslator t;
+    ImageContentTranslator t(kTestMaxPixels);
     REQUIRE(t.configure(image_config("colors=2,mode=gray,dither=none")) == StatusCode::Ok);
     REQUIRE(t.append_body(kPng2x1, sizeof(kPng2x1)) == StatusCode::Ok);
     REQUIRE(t.finalize() == StatusCode::Ok);
@@ -46,7 +49,7 @@ TEST_CASE("ImageTranslator converts PNG to ILBM")
 
 TEST_CASE("ImageTranslator rejects bad selector and garbage body")
 {
-    ImageContentTranslator t;
+    ImageContentTranslator t(kTestMaxPixels);
     CHECK(t.configure(image_config("colors=99")) == StatusCode::InvalidRequest);
     REQUIRE(t.configure(image_config("")) == StatusCode::Ok);
     const std::uint8_t junk[] = {1, 2, 3, 4};
@@ -54,18 +57,25 @@ TEST_CASE("ImageTranslator rejects bad selector and garbage body")
     CHECK(t.finalize() == StatusCode::InvalidRequest);
 }
 
-TEST_CASE("ImageTranslator rejects images above pixel cap")
+TEST_CASE("ImageTranslator honours the pixel cap it is constructed with")
 {
-    ImageContentTranslator t;
-    t.set_max_pixels_for_test(1);       // the 2x1 PNG has 2 pixels
-    REQUIRE(t.configure(image_config("")) == StatusCode::Ok);
-    REQUIRE(t.append_body(kPng2x1, sizeof(kPng2x1)) == StatusCode::Ok);
-    CHECK(t.finalize() == StatusCode::Unsupported);
+    // The 2x1 PNG has 2 pixels: a cap of 2 allows it, a cap of 1 does not.
+    ImageContentTranslator atCap(2);
+    REQUIRE(atCap.configure(image_config("")) == StatusCode::Ok);
+    REQUIRE(atCap.append_body(kPng2x1, sizeof(kPng2x1)) == StatusCode::Ok);
+    CHECK(atCap.finalize() == StatusCode::Ok);
+    CHECK(atCap.max_pixels() == 2);
+
+    ImageContentTranslator belowSize(1);
+    REQUIRE(belowSize.configure(image_config("")) == StatusCode::Ok);
+    REQUIRE(belowSize.append_body(kPng2x1, sizeof(kPng2x1)) == StatusCode::Ok);
+    CHECK(belowSize.finalize() == StatusCode::Unsupported);
+    CHECK(belowSize.translated_size() == 0);
 }
 
 TEST_CASE("ImageTranslator accepts fmt=ilbm and rejects other formats at configure")
 {
-    ImageContentTranslator t;
+    ImageContentTranslator t(kTestMaxPixels);
     CHECK(t.configure(image_config("fmt=ilbm")) == StatusCode::Ok);
     CHECK(t.configure(image_config("fmt=ilbm,bits=8")) == StatusCode::Ok);
     CHECK(t.configure(image_config("fmt=png")) == StatusCode::InvalidRequest);
