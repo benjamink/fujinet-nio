@@ -10,6 +10,7 @@
 #include "fujinet/net/network_link.h"
 
 #include <cctype>
+#include <cstdint>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -63,6 +64,18 @@ static const char* link_state_name(fujinet::net::LinkState st)
     case LinkState::Connecting:   return "connecting";
     case LinkState::Connected:    return "connected";
     case LinkState::Failed:     return "failed";
+    }
+    return "unknown";
+}
+
+static const char* translation_name(std::uint8_t type)
+{
+    switch (type) {
+    case 0: return "none";
+    case 1: return "json";
+    case 2: return "xml";
+    case 3: return "rss";
+    case 4: return "image";
     }
     return "unknown";
 }
@@ -435,6 +448,16 @@ private:
             text += (r.completed ? "1" : "0");
             text += " url=";
             text += r.url;
+            text += " translation=";
+            text += translation_name(r.translationType);
+            if (r.translationType != 0) {
+                text += " selector=";
+                text += r.translationSelector;
+                text += " ready=";
+                text += (r.translationReady ? "1" : "0");
+                text += " translated=";
+                text += std::to_string(r.translatedSize);
+            }
             text += "\r\n";
         }
 

@@ -66,6 +66,28 @@ and ESP32. It exposes:
 See [`packet_link.md`](packet_link.md). On ESP32 the `uart` provider finds the
 UART beneath a packet link, so `uart.*` keeps working on packet-link boards.
 
+### Provider: `net`
+
+Created with `fujinet::diag::create_network_diagnostic_provider(core, wifi_ctx)`.
+It exposes:
+
+- `net.sessions` — one line per active network session
+- `net.close <handle|all>` — close a session handle (or all)
+- `net.wifi.*` — scan, status, get, set and save (when a Wi-Fi context is given)
+
+Each `net.sessions` line reads:
+
+```
+handle=0x0102 method=1 flags=0 awaiting_body=0 body=0/0 completed=1 url=http://example.com/a.png translation=image selector=w=640,h=400,colors=16 ready=1 translated=18432
+```
+
+`translation` is `none`, `json`, `xml`, `rss` or `image`. For anything but
+`none` the line continues with `selector` (the JSON Pointer, or the image
+selector), `ready` (`1` once the body has been translated) and `translated`
+(size in bytes of the translated view; `0` until it is ready). The selector
+is printed as given and may contain `=` and `,`; it sits before `ready=`, so
+parse from the right.
+
 ---
 
 ## Console engine (app-only)

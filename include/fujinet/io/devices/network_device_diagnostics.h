@@ -28,6 +28,11 @@ struct NetworkDeviceDiagnosticsAccessor {
         std::uint64_t lastActivityTick{0};
 
         std::string url;
+
+        std::uint8_t translationType{0}; // ContentTranslationType
+        std::string translationSelector;
+        bool translationReady{false};
+        std::uint64_t translatedSize{0};
     };
 
     static std::vector<SessionRow> sessions(const NetworkDevice& dev)
@@ -54,6 +59,10 @@ struct NetworkDeviceDiagnosticsAccessor {
                 row.createdTick = s.createdTick;
                 row.lastActivityTick = s.lastActivityTick;
                 row.url = s.url;
+                row.translationType = static_cast<std::uint8_t>(s.translation.type);
+                row.translationSelector = s.translation.selector;
+                row.translationReady = s.translationReady;
+                row.translatedSize = s.translatedResultSize;
             }
             out.push_back(std::move(row));
         }
