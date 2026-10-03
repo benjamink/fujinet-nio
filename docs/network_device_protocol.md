@@ -165,7 +165,7 @@ repeat respHeaderCount times:
 u32  openExtFlags      // LE; presence bits for extension blocks
 
 if (openExtFlags bit0 set):
-  u8   translationType   // 0=None, 1=Json, 2=Xml, 3=Rss
+  u8   translationType   // 0=None, 1=Json, 2=Xml, 3=Rss, 4=Image
   u8   translationFlags  // translator-specific, 0 for now
   u16  selectorLen       // LE; 0 = no selector
   u8[] selector          // length selectorLen
@@ -265,38 +265,123 @@ Defined types:
 - `1` = `Json`
 - `2` = `Xml` (reserved, currently unsupported)
 - `3` = `Rss` (reserved, currently unsupported)
-- `4` = `Image` (PNG/JPEG/GIF in, ByteRun1 IFF ILBM out)
+- `4` = `Image` (PNG/JPEG/GIF in, an indexed image out; see [Image translation](#image-translation-type-4))
 
 For `Json`, `selector` is a JSON Pointer (RFC 6901), for example `/url`.
 
-For `Image`, the selector is ASCII `key=value` pairs separated by `,`. Every key is optional and may appear at most once. Unknown keys are an error (`InvalidRequest`).
+#### Image translation (type 4)
+
+Type 4 decodes a PNG, JPEG or GIF response body into an indexed image and
+returns it in the format the selector names. It works in two stages:
+
+1. A format-neutral pipeline decodes the body, scales it to fit the output
+   box, builds a palette, and maps every pixel to a palette index (nearest
+   colour, optionally Floyd-Steinberg dithered).
+2. The writer for `fmt` turns that indexed image into the bytes `Read`
+   returns. `ilbm` is the only writer today.
+
+The selector is ASCII `key=value` pairs separated by `,`. Every key is
+optional and may appear at most once. An unknown key or value is an error:
+`Open` or `TranslateConfigure` returns `InvalidRequest`.
 
 | key | values | default | meaning |
 |---|---|---|---|
+| `fmt` | `ilbm` | `ilbm` | output format (the writer) |
 | `w` | 16..1024 | 640 | max output width in pixels |
 | `h` | 16..1024 | 400 | max output height in pixels |
 | `colors` | 2..32 | 16 | number of image colours |
 | `base` | 0..30 | 0 | first pen index; `base+colors <= 32` |
+| `bits` | 1..8 | the format's; 4 for `ilbm` | bits per RGB channel in the palette: each channel is snapped to 2^bits evenly spaced levels, 0 and 255 included. `8` is full 24-bit colour |
 | `par` | `X:Y`, 1..4 each | `1:1` | display pixel aspect (width:height); hires non-laced is `1:2` |
 | `dither` | `fs` \| `none` | `fs` | Floyd-Steinberg error diffusion or nearest colour |
 | `mode` | `auto` \| `gray` \| `color` | `auto` | `auto` = gray if every pixel has max(r,g,b)-min(r,g,b) <= 24 |
 | `up` | `0` \| `1` | `0` | allow enlarging images smaller than the box |
 
-Image output format:
+Palette:
+- Gray: `colors` evenly spaced levels from black to white, each snapped to
+  `bits`.
+- Colour: median cut over a histogram with 4 bits per channel (4096 bins).
+  Each box gives one entry, snapped to `bits`: the box's mean bin when
+  `bits` is 4 or less, the mean of the box's actual pixels when it is more.
+  Entries left over when the image has fewer distinct colours are black.
+
+Pixels are mapped to the nearest palette entry by squared RGB distance
+weighted 3:6:1.
+
+##### `ilbm` writer
+
 - A standard `FORM ILBM` containing BMHD, CMAP and BODY.
 - BMHD values:
   - `w`/`h` are the output dimensions, `x=y=0`.
   - `nPlanes` is the bit count needed for `base+colors` pens, `masking=0`, `compression=1` (ByteRun1), `transparentColor=0`.
   - `xAspect`/`yAspect` come from `par`, `pageWidth=w`, `pageHeight=h`.
-- CMAP has `3 << nPlanes` bytes. Entries below `base` and at or above `base+colors` are written as 0.
+- CMAP has `3 << nPlanes` bytes of 8-bit RGB. Entries below `base` and at or
+  above `base+colors` are written as 0. With the default `bits=4` every entry
+  is an Amiga OCS (12-bit) colour, each channel a multiple of 17; `bits=8`
+  suits AGA.
 - BODY rows are `((w+15)/16)*2` bytes per plane. Each row and each plane is ByteRun1-compressed separately, in plane order 0..n-1.
 - Chunks with an odd length get a pad byte, and the FORM length is correct.
 
-Image errors: an undecodable body returns `InvalidRequest`; an image larger than the pixel cap (4096x4096 on POSIX, 700x700 on ESP32) returns `Unsupported`, as does a decode or conversion allocation failure after the header was accepted. ESP32 large-image behaviour not yet verified on hardware.
+A selector without `fmt` and `bits` gives the same bytes as firmware from
+before those keys existed.
 
-Compatibility (see [extending commands](protocol_reference.md#extending-commands)): `Image = 4` is a new value of an existing field, so no command or layout changed.
-- Firmware that predates the Image translator answers an `Open` (with the translation extension) or a `TranslateConfigure` carrying translation type `4` with `InvalidRequest`.
-- A client should treat that `InvalidRequest` on the open or configure step as "image translation is not available on this firmware" and tell the user to update the firmware. (After the open succeeds, `InvalidRequest` from `Read` or `Info` means the body could not be decoded, as described above.)
+##### Limits and errors
+
+- Pixel cap: a source image whose width*height is above the cap returns
+  `Unsupported`. The cap is `network.image_max_pixels` in `fujinet.yaml`:
+
+  ```yaml
+  network:
+    image_max_pixels: 0   # 0 = the platform default: 490000 (700x700) on ESP32,
+                          # 16777216 (4096x4096) on POSIX
+  ```
+
+  The console shows and changes it with `net.image.get`, `net.image.set`
+  and `net.image.save` (see [diagnostics](diagnostics.md)). A change applies
+  to translations configured after it.
+- No side may be wider or taller than 8192 pixels (`STBI_MAX_DIMENSIONS`).
+  stb_image rejects such a header like any other it cannot read.
+- An undecodable body, including one over 8192 pixels on a side, returns
+  `InvalidRequest` from `Info` or `Read`. An allocation failure while
+  decoding or converting returns `Unsupported`.
+
+##### Conversion time
+
+Conversion runs synchronously inside the first `Info`, `Read` or
+`TranslateConfigure` that finds the whole body, so the device answers nothing
+else until it finishes. Allow for it in the client's timeout for that
+request. Debug builds log one line per conversion under the `image` tag with
+the source and output size and the time of each stage (decode, scale,
+palette, quantise/dither, write, total).
+
+| platform | source | selector | total |
+|---|---|---|---|
+| POSIX, Debug build, i7-13800H | 700x500 colour PNG | default (559x399, 16 colours) | 55-65 ms (40 ms of it quantise/dither) |
+| POSIX, Debug build, i7-13800H | 700x700 noise PNG (the ESP32 cap) | `up=1,w=1024,h=1024,colors=32` | about 410 ms |
+| ESP32-S3 | 700x700 noise PNG (the cap) | `up=1,w=1024,h=1024,colors=32` | **TODO: measure on S3 hardware** |
+
+##### Compatibility
+
+See [extending commands](protocol_reference.md#extending-commands). Image
+translation adds a value to the existing `translationType` field and words to
+the existing selector string, so no request or reply layout changed and
+rules 1-4 there are unaffected. The selector words are the compatibility
+surface instead:
+
+- Firmware that predates the Image translator answers an `Open` (with the
+  translation extension) or a `TranslateConfigure` carrying translation
+  type `4` with `InvalidRequest`. A client should treat that as "image
+  translation is not available on this firmware" and tell the user to update
+  the firmware. (After the open succeeds, `InvalidRequest` from `Read` or
+  `Info` means the body could not be decoded, as described above.)
+- Firmware rejects selector keys and values it does not know, so firmware
+  that predates a key (such as `fmt` or `bits`) or a format answers
+  `InvalidRequest` at `Open`, before any body is read. For the widest
+  compatibility, omit every key whose value is the default; `fmt=ilbm` and
+  `bits=4` are never needed. Send a key only for a non-default value, and
+  read `InvalidRequest` at `Open` as "this firmware lacks that option".
+- New formats arrive as new `fmt` values with their own writer and default
+  `bits`, so existing selectors keep their meaning.
 - Older clients are unaffected: they never send type `4`.
 
 When translation is active:
@@ -309,9 +394,12 @@ If `translationType == None`, the device behaves as before and exposes the raw r
 
 When translation is active but the full body is not yet available, `Read` and `Info` return `NotReady`.
 
-JSON and Image translation are implemented. Unsupported translation types must return `Unsupported`.
+JSON and Image translation are implemented. A translation type the firmware
+does not know (such as `4` on firmware without the Image translator) returns
+`InvalidRequest` from `Open` or `TranslateConfigure`. `Xml` and `Rss` are known
+but have no translator yet, and return `Unsupported`.
 
-Serialization format (intended to be simple for 8-bit hosts):
+JSON serialization format (intended to be simple for 8-bit hosts):
 - **String**: raw text content (no surrounding quotes)
 - **Number**: integer or floating-point text
 - **Boolean**: `TRUE` or `FALSE`
@@ -725,7 +813,8 @@ u32  translatedSize    // size of the translated result
 - Reconfigures the handle to use the requested translator and selector.
 - If the raw response body has already been cached, the device re-runs translation without refetching.
 - Subsequent `Read` calls return translated bytes for the active selector.
-- In the current implementation, `Json` is supported and `Xml`/`Rss` return `Unsupported`.
+- In the current implementation, `Json` and `Image` are supported, `Xml`/`Rss` return `Unsupported`, and an unknown type returns `InvalidRequest`.
+- The translator reads the cached body in place; for `Image` no second copy of the body is made.
 
 ---
 
