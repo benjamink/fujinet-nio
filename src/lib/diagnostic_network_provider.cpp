@@ -6,6 +6,7 @@
 #include "fujinet/io/devices/wifi_controller.h"
 #include "fujinet/io/devices/network_device.h"
 #include "fujinet/io/devices/network_device_diagnostics.h"
+#include "fujinet/io/devices/network_translation.h"
 #include "fujinet/io/protocol/wire_device_ids.h"
 #include "fujinet/net/network_link.h"
 #include "fujinet/platform/network_registry.h"
@@ -69,14 +70,20 @@ static const char* link_state_name(fujinet::net::LinkState st)
     return "unknown";
 }
 
-static const char* translation_name(std::uint8_t type)
+static const char* translation_name(std::uint8_t raw)
 {
-    switch (type) {
-    case 0: return "none";
-    case 1: return "json";
-    case 2: return "xml";
-    case 3: return "rss";
-    case 4: return "image";
+    using fujinet::io::ContentTranslationType;
+    switch (static_cast<ContentTranslationType>(raw)) {
+        case ContentTranslationType::None:
+            return "none";
+        case ContentTranslationType::Json:
+            return "json";
+        case ContentTranslationType::Xml:
+            return "xml";
+        case ContentTranslationType::Rss:
+            return "rss";
+        case ContentTranslationType::Image:
+            return "image";
     }
     return "unknown";
 }
@@ -478,7 +485,7 @@ private:
             text += r.url;
             text += " translation=";
             text += translation_name(r.translationType);
-            if (r.translationType != 0) {
+            if (r.translationType != static_cast<std::uint8_t>(fujinet::io::ContentTranslationType::None)) {
                 text += " selector=";
                 text += r.translationSelector;
                 text += " ready=";
