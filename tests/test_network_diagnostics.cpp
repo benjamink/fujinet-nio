@@ -170,7 +170,7 @@ TEST_CASE("net.image.get shows the live cap, the stored value and the platform d
                     "platform_default_image_max_pixels: 16777216\r\n");
 }
 
-TEST_CASE("net.image.set applies to new sessions now and stores the value; net.image.save writes it")
+TEST_CASE("net.image.set updates the device cap and the stored config; net.image.save writes it")
 {
     Fixture f;
     auto storeOwned = std::make_unique<MemoryStore>();
