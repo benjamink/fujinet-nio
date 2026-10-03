@@ -53,7 +53,8 @@ idf_component_register(
         lib/host_service_init.cpp
         lib/host_state.cpp
         lib/image_content_translator.cpp
-        lib/image_convert.cpp
+        lib/image_pipeline.cpp
+        lib/image_writer_ilbm.cpp
         lib/io_device_manager.cpp
         lib/io_service.cpp
         lib/json_content_translator.cpp

@@ -1,6 +1,10 @@
 #pragma once
+
 #include "fujinet/io/devices/content_translator.h"
-#include "fujinet/io/devices/image_convert.h"
+#include "fujinet/io/devices/image_pipeline.h"
+
+#include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace fujinet::io {
@@ -17,19 +21,30 @@ namespace fujinet::io {
 #  endif
 #endif
 
+// Translation type 4 (Image): decodes PNG, JPEG or GIF and writes the indexed
+// result in the format the selector asks for. See docs/network_device_protocol.md.
 class ImageContentTranslator final : public IContentTranslator {
 public:
     StatusCode configure(const TranslationConfig& config) override;
     void reset() override;
     StatusCode append_body(const std::uint8_t* data, std::size_t len) override;
     StatusCode finalize() override;
-    std::uint64_t translated_size() const override { return _out.size(); }
-    StatusCode read(std::uint32_t offset, std::uint8_t* out, std::size_t maxBytes,
-                    std::uint16_t& actual, bool& eof) const override;
+    std::uint64_t translated_size() const override;
+    StatusCode read(std::uint32_t offset,
+                    std::uint8_t* out,
+                    std::size_t maxBytes,
+                    std::uint16_t& actual,
+                    bool& eof) const override;
+
     void set_max_pixels_for_test(std::uint32_t n) { _maxPixels = n; }
+
 private:
-    image::Options _opt{};
-    std::vector<std::uint8_t> _body, _out;
+    StatusCode convert(const std::uint8_t* data, std::size_t len);
+
+    image::Options _options{};
+    std::vector<std::uint8_t> _body;
+    std::vector<std::uint8_t> _out;
     std::uint32_t _maxPixels = FN_IMAGE_MAX_PIXELS;
 };
-}
+
+} // namespace fujinet::io

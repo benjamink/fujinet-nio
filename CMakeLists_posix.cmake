@@ -159,7 +159,8 @@ set(FUJINET_NIO_SOURCES
         src/lib/host_service_init.cpp
         src/lib/host_state.cpp
         src/lib/image_content_translator.cpp
-        src/lib/image_convert.cpp
+        src/lib/image_pipeline.cpp
+        src/lib/image_writer_ilbm.cpp
         src/lib/io_device_manager.cpp
         src/lib/io_service.cpp
         src/lib/json_content_translator.cpp
