@@ -294,6 +294,11 @@ Image output format:
 
 Image errors: an undecodable body returns `InvalidRequest`; an image larger than the pixel cap (4096x4096 on POSIX, 700x700 on ESP32) returns `Unsupported`, as does a decode or conversion allocation failure after the header was accepted. ESP32 large-image behaviour not yet verified on hardware.
 
+Compatibility (see [extending commands](protocol_reference.md#extending-commands)): `Image = 4` is a new value of an existing field, so no command or layout changed.
+- Firmware that predates the Image translator answers an `Open` (with the translation extension) or a `TranslateConfigure` carrying translation type `4` with `InvalidRequest`.
+- A client should treat that `InvalidRequest` on the open or configure step as "image translation is not available on this firmware" and tell the user to update the firmware. (After the open succeeds, `InvalidRequest` from `Read` or `Info` means the body could not be decoded, as described above.)
+- Older clients are unaffected: they never send type `4`.
+
 When translation is active:
 1. The device buffers the full HTTP response body.
 2. It applies the selected translator to the cached body.
