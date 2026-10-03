@@ -13,6 +13,8 @@ using fujinet::io::ImageContentTranslator;
 using fujinet::io::StatusCode;
 using fujinet::io::TranslationConfig;
 using fujinet::tests::image::kPng2x1;
+using fujinet::tests::image::kPng8192x1;
+using fujinet::tests::image::kPng8193x1;
 
 namespace {
 
@@ -80,4 +82,20 @@ TEST_CASE("ImageTranslator accepts fmt=ilbm and rejects other formats at configu
     CHECK(t.configure(image_config("fmt=ilbm,bits=8")) == StatusCode::Ok);
     CHECK(t.configure(image_config("fmt=png")) == StatusCode::InvalidRequest);
     CHECK(t.configure(image_config("bits=9")) == StatusCode::InvalidRequest);
+}
+
+TEST_CASE("ImageTranslator: stb_image refuses a side over 8192 even under the pixel cap")
+{
+    // 8193 pixels is well under the cap; only STBI_MAX_DIMENSIONS stops it.
+    // stb_image rejects the header itself, so this reads as an undecodable
+    // body (stbi_info() tries every format and keeps only the last reason).
+    ImageContentTranslator wide(kTestMaxPixels);
+    REQUIRE(wide.configure(image_config("")) == StatusCode::Ok);
+    REQUIRE(wide.append_body(kPng8193x1, sizeof(kPng8193x1)) == StatusCode::Ok);
+    CHECK(wide.finalize() == StatusCode::InvalidRequest);
+
+    ImageContentTranslator widest(kTestMaxPixels);
+    REQUIRE(widest.configure(image_config("")) == StatusCode::Ok);
+    REQUIRE(widest.append_body(kPng8192x1, sizeof(kPng8192x1)) == StatusCode::Ok);
+    CHECK(widest.finalize() == StatusCode::Ok);
 }
