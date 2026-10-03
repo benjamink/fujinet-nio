@@ -20,6 +20,7 @@ import os
 import re
 import shutil
 import sys
+import time
 
 FS_TARGETS = {"buildfs", "uploadfs", "uploadfsota"}
 BLOCK = 4096
@@ -124,8 +125,11 @@ def stage():
 
     chosen = "all" if everything else (", ".join(items) or "none")
     print(f"[boot_images] {chosen} (from {source})")
+    # Build times make a stale image obvious before it is flashed.
     for image in available(os.path.join(staged, "boot")):
-        print(f"[boot_images]   boot/{image}")
+        built = time.strftime("%Y-%m-%d %H:%M", time.localtime(
+            os.path.getmtime(os.path.join(staged, "boot", image))))
+        print(f"[boot_images]   boot/{image} (built {built})")
 
     needed = littlefs_bytes(staged)
     capacity = fs_partition_size()
