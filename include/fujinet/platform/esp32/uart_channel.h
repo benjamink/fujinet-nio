@@ -61,6 +61,9 @@ private:
     UartPins selected_pins() const;
     /// Apply `uart_param_config` + `uart_set_pin` for current `_uart_cfg`.
     bool apply_hw_parameters(const UartPins& uart_pins);
+    // The ESP-IDF driver as io/uart_rx_drain.h sees it.
+    struct RxDriver;
+    // Non-data events only: data events go through io::uart_rx_dispatch.
     void process_event(const uart_event_t& event);
     bool _initialized{false};
     config::UartConfig _uart_cfg{};

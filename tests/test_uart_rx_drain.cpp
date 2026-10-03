@@ -8,6 +8,7 @@
 #include <deque>
 #include <vector>
 
+using fujinet::io::uart_rx_dispatch;
 using fujinet::io::uart_rx_drain;
 using fujinet::io::uart_rx_service;
 
@@ -152,6 +153,27 @@ TEST_CASE("UART RX: other events go to the channel's handler")
 
     Bytes fifo;
     uart_rx_service(uart, fifo);
+    CHECK(uart.handled == 1);
+    CHECK(fifo == a);
+}
+
+TEST_CASE("UART RX: an event taken off the queue elsewhere is routed the same way")
+{
+    // As wait_for_readable does: it blocks on the queue, then dispatches the
+    // event that woke it. A data event must drain, never reach the handler
+    // (which only knows non-data events).
+    FakeUartDriver uart(4);
+    const Bytes a = burst(0x10, 12);
+    uart.receive(a);
+    FakeUartDriver::Event woke{};
+    REQUIRE(uart.next_event(woke));
+
+    Bytes fifo;
+    uart_rx_dispatch(uart, woke, fifo);
+    CHECK(fifo == a);
+    CHECK(uart.handled == 0);
+
+    uart_rx_dispatch(uart, FakeUartDriver::Event{false, 0}, fifo);
     CHECK(uart.handled == 1);
     CHECK(fifo == a);
 }

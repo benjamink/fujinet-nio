@@ -40,17 +40,26 @@ std::size_t uart_rx_drain(Driver& driver, std::vector<std::uint8_t>& fifo)
     return static_cast<std::size_t>(result);
 }
 
+/// One event, however it was taken from the queue: a data event drains,
+/// anything else goes to the driver's handler.
+template <class Driver>
+void uart_rx_dispatch(Driver& driver, const typename Driver::Event& event,
+                      std::vector<std::uint8_t>& fifo)
+{
+    if (driver.is_data(event)) {
+        uart_rx_drain(driver, fifo);
+    } else {
+        driver.handle(event);
+    }
+}
+
 /// Handle every queued event, then drain what dropped events left behind.
 template <class Driver>
 void uart_rx_service(Driver& driver, std::vector<std::uint8_t>& fifo)
 {
     typename Driver::Event event{};
     while (driver.next_event(event)) {
-        if (driver.is_data(event)) {
-            uart_rx_drain(driver, fifo);
-        } else {
-            driver.handle(event);
-        }
+        uart_rx_dispatch(driver, event, fifo);
     }
     uart_rx_drain(driver, fifo);
 }

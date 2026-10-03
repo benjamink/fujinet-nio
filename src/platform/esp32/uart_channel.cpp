@@ -293,35 +293,35 @@ bool UartChannel::reconfigure(const config::UartConfig& cfg)
     return apply_hw_parameters(uart_pins);
 }
 
+// A full event queue drops events but not their bytes, so reads take
+// everything the driver holds rather than what each event announced.
+struct UartChannel::RxDriver {
+    using Event = uart_event_t;
+    UartChannel& ch;
+
+    bool next_event(Event& event)
+    {
+        return xQueueReceive(ch._uart_queue, &event, 0) == pdTRUE;
+    }
+    bool is_data(const Event& event) const { return event.type == UART_DATA; }
+    void handle(const Event& event) { ch.process_event(event); }
+    bool buffered_len(std::size_t& len)
+    {
+        return uart_get_buffered_data_len(ch._uart_port, &len) == ESP_OK;
+    }
+    int read(std::uint8_t* dst, std::size_t len)
+    {
+        return uart_read_bytes(ch._uart_port, dst, len, 0);
+    }
+};
+
 void UartChannel::updateFIFO()
 {
     if (!_initialized || !_uart_queue) {
         return;
     }
 
-    // A full event queue drops events but not their bytes, so reads take
-    // everything the driver holds rather than what each event announced.
-    struct EspUartRx {
-        using Event = uart_event_t;
-        UartChannel& ch;
-
-        bool next_event(Event& event)
-        {
-            return xQueueReceive(ch._uart_queue, &event, 0) == pdTRUE;
-        }
-        bool is_data(const Event& event) const { return event.type == UART_DATA; }
-        void handle(const Event& event) { ch.process_event(event); }
-        bool buffered_len(std::size_t& len)
-        {
-            return uart_get_buffered_data_len(ch._uart_port, &len) == ESP_OK;
-        }
-        int read(std::uint8_t* dst, std::size_t len)
-        {
-            return uart_read_bytes(ch._uart_port, dst, len, 0);
-        }
-    };
-
-    EspUartRx rx{*this};
+    RxDriver rx{*this};
     io::uart_rx_service(rx, _fifo);
 }
 
@@ -397,7 +397,10 @@ bool UartChannel::wait_for_readable(std::chrono::milliseconds timeout)
         return false;
     }
 
-    process_event(event);
+    // The event that woke us is usually UART_DATA: route it as updateFIFO
+    // would, so data never reaches process_event.
+    RxDriver rx{*this};
+    io::uart_rx_dispatch(rx, event, _fifo);
     updateFIFO();
     return !_fifo.empty();
 }
