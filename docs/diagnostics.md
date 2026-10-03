@@ -117,9 +117,9 @@ parse from the right.
 when `fujinet.yaml` has 0, and is left out without a FujiDevice:
 
 ```
-image_max_pixels: 490000
+image_max_pixels: 1048576
 stored_image_max_pixels: default
-platform_default_image_max_pixels: 490000
+platform_default_image_max_pixels: 1048576
 ```
 
 See [Image translation](network_device_protocol.md#image-translation-type-4)
@@ -130,7 +130,7 @@ for what the cap limits.
 ```
 translations: 3
 failed: 1
-type=image status=unsupported ms=4 body=91234 out=0 stack_used=1180 heap_peak=0 heap_free_before=7954820 heap_largest_block=7864320 : 740x1043 is 771820 pixels, over the cap of 490000
+type=image status=unsupported ms=5 body=223158 out=0 stack_used=2376 heap_peak=68608 heap_free_before=8173907 heap_largest_block=7602176 : 740x1215 is 899100 pixels, over the cap of 490000
 type=image status=ok ms=2310 body=19234 out=27082 stack_used=21344 heap_peak=1203456 heap_free_before=7954820 heap_largest_block=7864320 : 700x500 -> 319x228 ilbm bits=4 colors=16
 type=json status=ok ms=3 body=386 out=24 stack_used=0 heap_peak=0 heap_free_before=0 heap_largest_block=0
 ```
