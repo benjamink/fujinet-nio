@@ -7,7 +7,11 @@ namespace fujinet::io {
 
 #ifndef FN_IMAGE_MAX_PIXELS
 #  if defined(ESP_PLATFORM)
-#    define FN_IMAGE_MAX_PIXELS (1200u * 1200u)   // RGB decode ~4.3 MB of PSRAM
+// stb's PNG path holds the compressed IDAT copy, the inflate buffer and the
+    // decoded output at once, roughly 3-4 bytes/px at peak, on top of the cached
+    // response body and _body. 700x700 (0.49 Mpx) keeps that near 2 MB.
+    // Not yet verified on hardware.
+#    define FN_IMAGE_MAX_PIXELS (700u * 700u)
 #  else
 #    define FN_IMAGE_MAX_PIXELS (4096u * 4096u)
 #  endif

@@ -292,7 +292,7 @@ Image output format:
 - BODY rows are `((w+15)/16)*2` bytes per plane. Each row and each plane is ByteRun1-compressed separately, in plane order 0..n-1.
 - Chunks with an odd length get a pad byte, and the FORM length is correct.
 
-Image errors: an undecodable body returns `InvalidRequest`; an image larger than the pixel cap (4096x4096 on POSIX, 1200x1200 on ESP32) returns `Unsupported`.
+Image errors: an undecodable body returns `InvalidRequest`; an image larger than the pixel cap (4096x4096 on POSIX, 700x700 on ESP32) returns `Unsupported`, as does a decode or conversion allocation failure after the header was accepted. ESP32 large-image behaviour not yet verified on hardware.
 
 When translation is active:
 1. The device buffers the full HTTP response body.
