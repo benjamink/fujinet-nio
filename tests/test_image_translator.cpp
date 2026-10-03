@@ -62,3 +62,12 @@ TEST_CASE("ImageTranslator rejects images above pixel cap")
     REQUIRE(t.append_body(kPng2x1, sizeof(kPng2x1)) == StatusCode::Ok);
     CHECK(t.finalize() == StatusCode::Unsupported);
 }
+
+TEST_CASE("ImageTranslator accepts fmt=ilbm and rejects other formats at configure")
+{
+    ImageContentTranslator t;
+    CHECK(t.configure(image_config("fmt=ilbm")) == StatusCode::Ok);
+    CHECK(t.configure(image_config("fmt=ilbm,bits=8")) == StatusCode::Ok);
+    CHECK(t.configure(image_config("fmt=png")) == StatusCode::InvalidRequest);
+    CHECK(t.configure(image_config("bits=9")) == StatusCode::InvalidRequest);
+}

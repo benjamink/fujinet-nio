@@ -76,3 +76,17 @@ TEST_CASE("ImageGolden: par 1:2 with 12 colours output is unchanged")
     CHECK(out.size() == 478);
     CHECK(fnv1a(out) == 0x076BBAE6u);
 }
+
+TEST_CASE("ImageGolden: explicit fmt=ilbm,bits=4 matches the default output")
+{
+    const auto out = translate_colour_fixture("fmt=ilbm,bits=4");
+    CHECK(out.size() == 238);
+    CHECK(fnv1a(out) == 0xBDA7F5DFu);
+    CHECK(translate_colour_fixture("up=1,colors=5,bits=4,fmt=ilbm") == translate_colour_fixture("up=1,colors=5"));
+}
+
+TEST_CASE("ImageGolden: bits changes the palette and so the output")
+{
+    CHECK(translate_colour_fixture("bits=8") != translate_colour_fixture(""));
+    CHECK(translate_colour_fixture("bits=2") != translate_colour_fixture(""));
+}

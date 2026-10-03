@@ -8,6 +8,21 @@
 
 namespace fujinet::io {
 
+namespace {
+
+// The one place a writer is chosen. parse_selector() only accepts formats
+// listed here.
+std::vector<std::uint8_t> write_output(const image::IndexedImage& indexed, const image::Options& options)
+{
+    switch (options.format) {
+        case image::OutputFormat::Ilbm:
+            return image::write_ilbm(indexed, options);
+    }
+    return {};
+}
+
+} // namespace
+
 StatusCode ImageContentTranslator::configure(const TranslationConfig& config)
 {
     if (config.type != ContentTranslationType::Image) {
@@ -60,7 +75,7 @@ StatusCode ImageContentTranslator::convert(const std::uint8_t* data, std::size_t
     }
 
     try {
-        _out = image::write_ilbm(indexed, _options);
+        _out = write_output(indexed, _options);
     } catch (const std::bad_alloc&) {
         std::vector<std::uint8_t>().swap(_out);
         return StatusCode::Unsupported;

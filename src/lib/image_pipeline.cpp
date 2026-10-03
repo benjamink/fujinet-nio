@@ -27,11 +27,13 @@ enum SelectorKey : int {
     KeyDither,
     KeyMode,
     KeyUpscale,
+    KeyFormat,
+    KeyBits,
     KeyCount,
 };
 
 constexpr const char* kSelectorKeyNames[KeyCount] = {
-    "w", "h", "colors", "base", "par", "dither", "mode", "up",
+    "w", "h", "colors", "base", "par", "dither", "mode", "up", "fmt", "bits",
 };
 
 int find_selector_key(const std::string& name)
@@ -118,6 +120,16 @@ bool parse_upscale(const std::string& text, Options& o)
     return false;
 }
 
+// Output formats a writer exists for. Adding a writer adds a name here.
+bool parse_format(const std::string& text, Options& o)
+{
+    if (text == "ilbm") {
+        o.format = OutputFormat::Ilbm;
+        return true;
+    }
+    return false;
+}
+
 bool apply_selector_value(int key, const std::string& value, Options& o)
 {
     switch (key) {
@@ -137,6 +149,10 @@ bool apply_selector_value(int key, const std::string& value, Options& o)
             return parse_mode(value, o);
         case KeyUpscale:
             return parse_upscale(value, o);
+        case KeyFormat:
+            return parse_format(value, o);
+        case KeyBits:
+            return parse_int(value, 1, kMaxPaletteBits, o.bits);
         default:
             return false;
     }
@@ -160,18 +176,12 @@ bool is_gray(const std::vector<std::uint8_t>& rgb)
     return true;
 }
 
-// Snap an 8-bit value to the 16-level (4 bits per channel) OCS grid.
-std::uint8_t ocs(int value)
-{
-    return static_cast<std::uint8_t>(((value + 8) / 17) * 17);
-}
-
 std::vector<Rgb> make_gray_palette(const Options& o)
 {
     std::vector<Rgb> palette;
     palette.reserve(static_cast<std::size_t>(o.colors));
     for (int i = 0; i < o.colors; ++i) {
-        const std::uint8_t v = ocs(i * 255 / (o.colors - 1));
+        const std::uint8_t v = snap_channel(i * 255 / (o.colors - 1), o.bits);
         palette.push_back({v, v, v});
     }
     return palette;
@@ -188,6 +198,11 @@ struct Bin {
     int g;
     int b;
     long count;
+    // Sums of the 8-bit pixel values in the bin; only kept when the palette
+    // is finer than the histogram (bits > kHistBits).
+    std::uint64_t sumR;
+    std::uint64_t sumG;
+    std::uint64_t sumB;
 };
 
 struct Box {
@@ -206,15 +221,32 @@ int bin_channel(const Bin& bin, int channel)
     return bin.b;
 }
 
-std::vector<Bin> collect_bins(const std::vector<std::uint8_t>& rgb)
+std::size_t bin_key(const std::uint8_t* px)
+{
+    const int shift = 8 - kHistBits;
+    const int r = px[0] >> shift;
+    const int g = px[1] >> shift;
+    const int b = px[2] >> shift;
+    return static_cast<std::size_t>((r << (2 * kHistBits)) | (g << kHistBits) | b);
+}
+
+std::vector<Bin> collect_bins(const std::vector<std::uint8_t>& rgb, bool keepSums)
 {
     std::vector<long> hist(kHistBins, 0);
-    const int shift = 8 - kHistBits;
     for (std::size_t i = 0; i + 2 < rgb.size(); i += 3) {
-        const int r = rgb[i] >> shift;
-        const int g = rgb[i + 1] >> shift;
-        const int b = rgb[i + 2] >> shift;
-        ++hist[static_cast<std::size_t>((r << (2 * kHistBits)) | (g << kHistBits) | b)];
+        ++hist[bin_key(&rgb[i])];
+    }
+
+    // Per-bin channel sums, three per bin, for the exact box means.
+    std::vector<std::uint64_t> sums;
+    if (keepSums) {
+        sums.assign(static_cast<std::size_t>(kHistBins) * 3, 0);
+        for (std::size_t i = 0; i + 2 < rgb.size(); i += 3) {
+            const std::size_t at = bin_key(&rgb[i]) * 3;
+            sums[at] += rgb[i];
+            sums[at + 1] += rgb[i + 1];
+            sums[at + 2] += rgb[i + 2];
+        }
     }
 
     std::vector<Bin> bins;
@@ -227,6 +259,12 @@ std::vector<Bin> collect_bins(const std::vector<std::uint8_t>& rgb)
         bin.g = (k >> kHistBits) & (kHistLevels - 1);
         bin.b = k & (kHistLevels - 1);
         bin.count = hist[static_cast<std::size_t>(k)];
+        if (keepSums) {
+            const std::size_t at = static_cast<std::size_t>(k) * 3;
+            bin.sumR = sums[at];
+            bin.sumG = sums[at + 1];
+            bin.sumB = sums[at + 2];
+        }
         bins.push_back(bin);
     }
     return bins;
@@ -297,8 +335,9 @@ std::size_t split_point(std::vector<Bin>& bins, const Box& box, int channel)
     return mid;
 }
 
-// The pixel-weighted mean bin of the box, scaled to 8 bits per channel.
-Rgb box_colour(const std::vector<Bin>& bins, const Box& box)
+// The pixel-weighted mean bin of the box, scaled to 8 bits per channel. This
+// is already on the 4-bit grid, so it is exact for bits <= kHistBits.
+Rgb box_bin_mean(const std::vector<Bin>& bins, const Box& box)
 {
     long r = 0;
     long g = 0;
@@ -317,9 +356,38 @@ Rgb box_colour(const std::vector<Bin>& bins, const Box& box)
     };
 }
 
+// The mean of the box's pixels themselves, rounded to 8 bits per channel.
+Rgb box_pixel_mean(const std::vector<Bin>& bins, const Box& box)
+{
+    std::uint64_t r = 0;
+    std::uint64_t g = 0;
+    std::uint64_t b = 0;
+    std::uint64_t n = 0;
+    for (std::size_t i = box.lo; i < box.hi; ++i) {
+        r += bins[i].sumR;
+        g += bins[i].sumG;
+        b += bins[i].sumB;
+        n += static_cast<std::uint64_t>(bins[i].count);
+    }
+    return {
+        static_cast<std::uint8_t>((r + n / 2) / n),
+        static_cast<std::uint8_t>((g + n / 2) / n),
+        static_cast<std::uint8_t>((b + n / 2) / n),
+    };
+}
+
+// A box's palette entry, on the 2^bits grid. Up to the histogram's own 4 bits
+// the mean bin is used (bits=4 is the original OCS palette); above that the
+// mean of the actual pixels, so bits=8 gives exact 24-bit colours.
+Rgb box_colour(const std::vector<Bin>& bins, const Box& box, int bits)
+{
+    const Rgb mean = bits > kHistBits ? box_pixel_mean(bins, box) : box_bin_mean(bins, box);
+    return {snap_channel(mean.r, bits), snap_channel(mean.g, bits), snap_channel(mean.b, bits)};
+}
+
 std::vector<Rgb> make_colour_palette(const std::vector<std::uint8_t>& rgb, const Options& o)
 {
-    std::vector<Bin> bins = collect_bins(rgb);
+    std::vector<Bin> bins = collect_bins(rgb, o.bits > kHistBits);
     std::vector<Box> boxes{{0, bins.size()}};
 
     while (static_cast<int>(boxes.size()) < o.colors) {
@@ -338,7 +406,7 @@ std::vector<Rgb> make_colour_palette(const std::vector<std::uint8_t>& rgb, const
     palette.reserve(static_cast<std::size_t>(o.colors));
     for (const Box& box : boxes) {
         if (box.hi > box.lo) {
-            palette.push_back(box_colour(bins, box));
+            palette.push_back(box_colour(bins, box, o.bits));
         }
     }
     while (static_cast<int>(palette.size()) < o.colors) {
@@ -413,6 +481,23 @@ private:
 
 } // namespace
 
+int default_palette_bits(OutputFormat format)
+{
+    switch (format) {
+        case OutputFormat::Ilbm:
+            return 4;       // Amiga OCS: 12-bit colour
+    }
+    return 4;
+}
+
+std::uint8_t snap_channel(int value, int bits)
+{
+    const int levels = (1 << bits) - 1;
+    const int clamped = std::clamp(value, 0, 255);
+    const int step = (clamped * levels + 127) / 255;
+    return static_cast<std::uint8_t>((step * 255 + levels / 2) / levels);
+}
+
 bool parse_selector(const std::string& selector, Options& out)
 {
     Options o;
@@ -446,6 +531,9 @@ bool parse_selector(const std::string& selector, Options& out)
 
     if (o.base + o.colors > kMaxPens) {
         return false;
+    }
+    if ((seen & (1u << KeyBits)) == 0) {
+        o.bits = default_palette_bits(o.format);
     }
     out = o;
     return true;

@@ -4,6 +4,8 @@
 #include "fujinet/io/devices/image_pipeline.h"
 
 #include <cstdint>
+#include <cstdlib>
+#include <string>
 #include <vector>
 
 using namespace fujinet::io::image;
@@ -90,4 +92,232 @@ TEST_CASE("ImagePipeline: map_pixels returns palette indices without the base")
     const auto pixels = map_pixels(rgb, {16, 16}, palette, o);
     CHECK(pixels[0] == 0);
     CHECK(pixels[1] == 1);
+}
+
+// ---------------------------------------------------------------------------
+// fmt and bits
+// ---------------------------------------------------------------------------
+
+TEST_CASE("ImagePipeline: fmt accepts ilbm and rejects everything else")
+{
+    Options o;
+    REQUIRE(parse_selector("", o));
+    CHECK(o.format == OutputFormat::Ilbm);
+    CHECK(parse_selector("fmt=ilbm", o));
+    CHECK(o.format == OutputFormat::Ilbm);
+    CHECK(parse_selector("w=320,fmt=ilbm,colors=8", o));
+
+    CHECK_FALSE(parse_selector("fmt=", o));
+    CHECK_FALSE(parse_selector("fmt=ILBM", o));
+    CHECK_FALSE(parse_selector("fmt=png", o));
+    CHECK_FALSE(parse_selector("fmt=bbc", o));
+    CHECK_FALSE(parse_selector("fmt=ilbm,fmt=ilbm", o));
+}
+
+TEST_CASE("ImagePipeline: bits defaults to 4 for ilbm and accepts 1..8")
+{
+    Options o;
+    REQUIRE(parse_selector("", o));
+    CHECK(o.bits == 4);
+    CHECK(default_palette_bits(OutputFormat::Ilbm) == 4);
+    for (int bits = 1; bits <= 8; ++bits) {
+        CAPTURE(bits);
+        REQUIRE(parse_selector("bits=" + std::to_string(bits), o));
+        CHECK(o.bits == bits);
+    }
+
+    CHECK_FALSE(parse_selector("bits=0", o));
+    CHECK_FALSE(parse_selector("bits=9", o));
+    CHECK_FALSE(parse_selector("bits=", o));
+    CHECK_FALSE(parse_selector("bits=x", o));
+    CHECK_FALSE(parse_selector("bits=4,bits=4", o));
+}
+
+TEST_CASE("ImagePipeline: snap_channel spaces 2^bits levels evenly")
+{
+    for (int v = 0; v <= 255; ++v) {
+        CAPTURE(v);
+        CHECK(snap_channel(v, 4) == ((v + 8) / 17) * 17);     // the OCS grid
+        CHECK(snap_channel(v, 8) == v);
+        CHECK(snap_channel(v, 1) == (v >= 128 ? 255 : 0));
+        const int two = snap_channel(v, 2);
+        CHECK((two == 0 || two == 85 || two == 170 || two == 255));
+        CHECK(std::abs(two - v) <= 42);
+    }
+    for (int bits = 1; bits <= 8; ++bits) {
+        CAPTURE(bits);
+        CHECK(snap_channel(0, bits) == 0);
+        CHECK(snap_channel(255, bits) == 255);
+        for (int v = 0; v <= 255; ++v) {
+            const int s = snap_channel(v, bits);
+            CHECK(snap_channel(s, bits) == s);      // already on the grid
+        }
+    }
+}
+
+namespace {
+
+// 16x16 RGB image made of four 8x8 blocks of the given colours.
+std::vector<std::uint8_t> four_blocks(const Rgb (&colours)[4])
+{
+    std::vector<std::uint8_t> rgb;
+    rgb.reserve(16 * 16 * 3);
+    for (int y = 0; y < 16; ++y) {
+        for (int x = 0; x < 16; ++x) {
+            const Rgb& c = colours[(y / 8) * 2 + (x / 8)];
+            rgb.push_back(c.r);
+            rgb.push_back(c.g);
+            rgb.push_back(c.b);
+        }
+    }
+    return rgb;
+}
+
+bool same_colour(const Rgb& a, const Rgb& b)
+{
+    return a.r == b.r && a.g == b.g && a.b == b.b;
+}
+
+bool contains_colour(const std::vector<Rgb>& palette, const Rgb& c)
+{
+    for (const Rgb& p : palette) {
+        if (same_colour(p, c)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+const Rgb kBlocks[4] = {{200, 30, 60}, {20, 180, 90}, {40, 70, 220}, {230, 210, 20}};
+
+} // namespace
+
+TEST_CASE("ImagePipeline: median cut gives distinct colours snapped to bits")
+{
+    const auto rgb = four_blocks(kBlocks);
+    for (int bits = 1; bits <= 8; ++bits) {
+        CAPTURE(bits);
+        Options o;
+        REQUIRE(parse_selector("colors=4,bits=" + std::to_string(bits), o));
+        const auto palette = make_palette(rgb, o);
+        REQUIRE(palette.size() == 4);
+        for (std::size_t i = 0; i < palette.size(); ++i) {
+            const Rgb& p = palette[i];
+            CAPTURE(i);
+            CHECK(snap_channel(p.r, bits) == p.r);
+            CHECK(snap_channel(p.g, bits) == p.g);
+            CHECK(snap_channel(p.b, bits) == p.b);
+            if (bits >= 2) {
+                CHECK_FALSE((p.r == p.g && p.g == p.b));    // not a gray
+                for (std::size_t j = 0; j < i; ++j) {
+                    CHECK_FALSE(same_colour(palette[j], p));
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("ImagePipeline: median cut keeps the OCS bin colours at bits=4 and exact colours at bits=8")
+{
+    const auto rgb = four_blocks(kBlocks);
+    Options o;
+
+    REQUIRE(parse_selector("colors=4", o));
+    const auto ocs = make_palette(rgb, o);
+    CHECK(contains_colour(ocs, {204, 17, 51}));     // 200,30,60 in 4-bit bins (12,1,3) * 17
+    CHECK(contains_colour(ocs, {238, 221, 17}));    // 230,210,20 -> (14,13,1) * 17
+
+    REQUIRE(parse_selector("colors=4,bits=8", o));
+    const auto full = make_palette(rgb, o);
+    for (const Rgb& c : kBlocks) {
+        CHECK(contains_colour(full, c));
+    }
+}
+
+TEST_CASE("ImagePipeline: gray palette is snapped to bits")
+{
+    const std::vector<std::uint8_t> rgb = {0, 0, 0, 255, 255, 255};
+    Options o;
+    REQUIRE(parse_selector("colors=4,mode=gray,bits=2", o));
+    const auto two = make_palette(rgb, o);
+    REQUIRE(two.size() == 4);
+    CHECK(two[0].r == 0);
+    CHECK(two[1].r == 85);
+    CHECK(two[2].r == 170);
+    CHECK(two[3].r == 255);
+
+    REQUIRE(parse_selector("colors=3,mode=gray,bits=8", o));
+    const auto full = make_palette(rgb, o);
+    REQUIRE(full.size() == 3);
+    CHECK(full[1].r == 127);        // 1*255/2, not snapped to 119 or 136
+}
+
+namespace {
+
+// Horizontal gray ramp, `w` pixels wide and `h` rows tall.
+std::vector<std::uint8_t> gray_ramp(int w, int h)
+{
+    std::vector<std::uint8_t> rgb;
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const auto v = static_cast<std::uint8_t>(x * 255 / (w - 1));
+            rgb.push_back(v);
+            rgb.push_back(v);
+            rgb.push_back(v);
+        }
+    }
+    return rgb;
+}
+
+int transitions(const std::vector<std::uint8_t>& row)
+{
+    int n = 0;
+    for (std::size_t i = 1; i < row.size(); ++i) {
+        if (row[i] != row[i - 1]) {
+            ++n;
+        }
+    }
+    return n;
+}
+
+} // namespace
+
+TEST_CASE("ImagePipeline: dither=none is nearest colour, fs diffuses the error")
+{
+    const int w = 64;
+    const int h = 4;
+    const auto rgb = gray_ramp(w, h);
+
+    Options none;
+    REQUIRE(parse_selector("colors=2,mode=gray,dither=none", none));
+    const auto palette = make_palette(rgb, none);
+    REQUIRE(palette.size() == 2);
+    const auto plain = map_pixels(rgb, {w, h}, palette, none);
+    const auto again = map_pixels(rgb, {w, h}, palette, none);
+    CHECK(plain == again);
+
+    // Every pixel takes whichever of black and white is nearer: one edge per row.
+    for (int x = 0; x < w; ++x) {
+        const int v = rgb[static_cast<std::size_t>(x) * 3];
+        CAPTURE(x);
+        CHECK(plain[static_cast<std::size_t>(x)] == (v > 127 ? 1 : 0));
+    }
+    const std::vector<std::uint8_t> plainRow(plain.begin(), plain.begin() + w);
+    CHECK(transitions(plainRow) == 1);
+
+    Options fs;
+    REQUIRE(parse_selector("colors=2,mode=gray,dither=fs", fs));
+    const auto dithered = map_pixels(rgb, {w, h}, palette, fs);
+    CHECK(dithered != plain);
+    const std::vector<std::uint8_t> ditheredRow(dithered.begin(), dithered.begin() + w);
+    CHECK(transitions(ditheredRow) > 4);
+
+    // Error diffusion keeps the average brightness of the ramp: about half
+    // the pixels are white.
+    int white = 0;
+    for (const std::uint8_t p : dithered) {
+        white += p;
+    }
+    CHECK(white > w * h * 2 / 5);
+    CHECK(white < w * h * 3 / 5);
 }

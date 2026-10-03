@@ -13,6 +13,10 @@
 // image_writer_ilbm.h) turns that into the bytes a client reads.
 namespace fujinet::io::image {
 
+enum class OutputFormat : std::uint8_t {
+    Ilbm,
+};
+
 enum class ColourMode : std::uint8_t {
     Auto,
     Gray,
@@ -26,9 +30,11 @@ struct Options {
     int base = 0;
     int parX = 1;
     int parY = 1;
+    int bits = 4;                       // bits per RGB channel in the palette
     bool dither = true;
     ColourMode mode = ColourMode::Auto;
     bool upscale = false;
+    OutputFormat format = OutputFormat::Ilbm;
 };
 
 struct Rgb {
@@ -50,9 +56,19 @@ struct IndexedImage {
     std::vector<Rgb> palette;
 };
 
+// Highest value accepted for the `bits` selector key (full 24-bit colour).
+constexpr int kMaxPaletteBits = 8;
+
 // Parse the translator selector (`key=value,...`). Returns false for an
-// unknown or repeated key, or a value out of range.
+// unknown or repeated key, a value out of range, or an unknown `fmt`.
 bool parse_selector(const std::string& selector, Options& out);
+
+// Palette depth used when the selector has no `bits` key.
+int default_palette_bits(OutputFormat format);
+
+// Snap an 8-bit channel value to the nearest of 2^bits evenly spaced levels
+// (0 and 255 included). bits=4 is the Amiga OCS grid, bits=8 leaves it alone.
+std::uint8_t snap_channel(int value, int bits);
 
 Size fit_size(int srcW, int srcH, const Options& o);
 std::vector<std::uint8_t> scale_rgb(const std::uint8_t* rgb, int srcW, int srcH, Size out);
