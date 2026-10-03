@@ -4,6 +4,7 @@
 #include "fujinet/core/version.h"
 #include "fujinet/io/devices/fuji_commands.h"
 
+#include <algorithm>
 #include <string_view>
 
 namespace fujinet::io {
@@ -59,11 +60,13 @@ void FujiDevice::start()
 
 IOResponse FujiDevice::handle_get_info(const IORequest& request)
 {
-    if (request.payload.size() != 1 || request.payload[0] != INFO_VERSION) {
+    // Extendable command (protocol_reference.md, "Extending commands"): reply
+    // in the lower of the client's version and ours, ignoring trailing bytes.
+    if (request.payload.empty() || request.payload[0] == 0) {
         return make_base_response(request, StatusCode::InvalidRequest);
     }
     auto resp = make_success_response(request);
-    resp.payload = {INFO_VERSION};
+    resp.payload = {std::min(request.payload[0], INFO_VERSION)};
     put_string8(resp.payload, fujinet::version(), MAX_FIRMWARE_VERSION);
     put_string8(resp.payload, build::current_build_profile().name, MAX_PROFILE_NAME);
     return resp;

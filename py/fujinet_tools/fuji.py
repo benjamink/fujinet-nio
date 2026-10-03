@@ -10,7 +10,7 @@ from .fujibus import FujiBusSession
 # -----------------------
 FUJI_DEVICE_ID = 0x70
 FUJI_CMD_GET_INFO = 0x01
-FUJI_INFO_VERSION = 1
+FUJI_INFO_VERSION = 1  # the highest GetInfo version this client understands
 
 
 @dataclass
@@ -35,8 +35,10 @@ def _string8(payload: bytes, at: int) -> tuple[str, int]:
 
 def parse_get_info_resp(payload: bytes) -> FujiInfo:
     """version, firmware version (u8 len + text), build profile (u8 len + text).
-    Later versions may append fields, which are ignored."""
-    if not payload or payload[0] != FUJI_INFO_VERSION:
+    The reply's version is the lower of ours and the firmware's
+    (protocol_reference.md, "Extending commands"); version 1 has exactly
+    these fields, though this parser tolerates trailing bytes."""
+    if not payload or not 1 <= payload[0] <= FUJI_INFO_VERSION:
         raise ValueError("unsupported GetInfo response version")
     firmware, at = _string8(payload, 1)
     profile, _ = _string8(payload, at)

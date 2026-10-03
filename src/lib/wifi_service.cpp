@@ -64,11 +64,25 @@ WifiService::WifiService(config::FujiConfig& config,
 
 IOResponse WifiService::handle(const IORequest& request)
 {
+    const auto command = protocol::to_wifi_command(request.command);
+    if (command == protocol::WifiCommand::GetAdapterInfo) {
+        // Extendable command (protocol_reference.md, "Extending commands"):
+        // reply in the lower of the client's version and ours, ignoring
+        // trailing bytes. The older commands below still need exactly v1.
+        if (request.payload.empty() || request.payload[0] == 0)
+            return make_base_response(request, StatusCode::InvalidRequest);
+        auto* link = _controller.link();
+        const auto mac = link ? link->mac_address() : net::MacAddress{};
+        auto response = make_success_response(request);
+        response.payload = {std::min(request.payload[0], VERSION), static_cast<std::uint8_t>(mac.valid ? 1 : 0)};
+        response.payload.insert(response.payload.end(), mac.bytes, mac.bytes + 6);
+        return response;
+    }
+
     if (request.payload.empty() || request.payload[0] != VERSION)
         return make_base_response(request, StatusCode::InvalidRequest);
 
     auto response = make_success_response(request);
-    const auto command = protocol::to_wifi_command(request.command);
     if (command == protocol::WifiCommand::GetConfig) {
         if (request.payload.size() != 1 || _controller.config().ssid.size() > MAX_SSID ||
             _controller.config().bssid.size() > MAX_BSSID_TEXT)
@@ -99,15 +113,6 @@ IOResponse WifiService::handle(const IORequest& request)
         // Extensions follow the version-1 fields so older clients can still parse status.
         put16(response.payload, caps.flags);
         response.payload.push_back(static_cast<std::uint8_t>(caps.backend));
-        return response;
-    }
-
-    if (command == protocol::WifiCommand::GetAdapterInfo) {
-        if (request.payload.size() != 1) return make_base_response(request, StatusCode::InvalidRequest);
-        auto* link = _controller.link();
-        const auto mac = link ? link->mac_address() : net::MacAddress{};
-        response.payload = {VERSION, static_cast<std::uint8_t>(mac.valid ? 1 : 0)};
-        response.payload.insert(response.payload.end(), mac.bytes, mac.bytes + 6);
         return response;
     }
 

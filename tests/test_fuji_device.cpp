@@ -79,14 +79,33 @@ TEST_CASE("FujiDevice GetInfo reports the firmware version and build profile")
     CHECK(response.payload == expected);
 }
 
-TEST_CASE("FujiDevice GetInfo needs exactly the version byte")
+TEST_CASE("FujiDevice GetInfo answers newer clients in its own version")
+{
+    FujiDevice device(nullptr, nullptr);
+    IORequest request;
+    request.command = static_cast<std::uint16_t>(FujiCommand::GetInfo);
+    request.payload = {1};
+    const auto v1 = device.handle(request).payload;
+
+    // A client that understands a later version, or sends fields this
+    // firmware doesn't know, gets the version-1 reply.
+    for (const std::vector<std::uint8_t>& payload : {std::vector<std::uint8_t>{2},
+                                                     std::vector<std::uint8_t>{1, 0xAA, 0xBB},
+                                                     std::vector<std::uint8_t>{9, 0xAA}}) {
+        request.payload = payload;
+        const auto response = device.handle(request);
+        CHECK(response.status == StatusCode::Ok);
+        CHECK(response.payload == v1);
+    }
+}
+
+TEST_CASE("FujiDevice GetInfo needs a version")
 {
     FujiDevice device(nullptr, nullptr);
     IORequest request;
     request.command = static_cast<std::uint16_t>(FujiCommand::GetInfo);
     for (const std::vector<std::uint8_t>& payload : {std::vector<std::uint8_t>{},
-                                                     std::vector<std::uint8_t>{2},
-                                                     std::vector<std::uint8_t>{1, 0}}) {
+                                                     std::vector<std::uint8_t>{0}}) {
         request.payload = payload;
         CHECK(device.handle(request).status == StatusCode::InvalidRequest);
     }

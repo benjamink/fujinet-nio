@@ -144,7 +144,28 @@ TEST_CASE("wifi service reports the adapter MAC") {
     REQUIRE(response.status == fujinet::io::StatusCode::Ok);
     CHECK(response.payload == std::vector<std::uint8_t>{1, 1, 0x24, 0x6f, 0x28, 0x01, 0x02, 0x03});
 
-    request.payload = {1, 0};
+    // Newer clients get the version-1 reply; unknown trailing bytes are ignored.
+    for (const std::vector<std::uint8_t>& payload : {std::vector<std::uint8_t>{2},
+                                                     std::vector<std::uint8_t>{1, 0}}) {
+        request.payload = payload;
+        const auto newer = service.handle(request);
+        CHECK(newer.status == fujinet::io::StatusCode::Ok);
+        CHECK(newer.payload == response.payload);
+    }
+    for (const std::vector<std::uint8_t>& payload : {std::vector<std::uint8_t>{},
+                                                     std::vector<std::uint8_t>{0}}) {
+        request.payload = payload;
+        CHECK(service.handle(request).status == fujinet::io::StatusCode::InvalidRequest);
+    }
+}
+
+TEST_CASE("wifi service's older commands still need exactly version 1") {
+    fujinet::config::FujiConfig config;
+    Link link;
+    fujinet::io::WifiService service(config, nullptr, [&] { return &link; });
+    fujinet::io::IORequest request;
+    request.command = 0x01; // GET_STATUS
+    request.payload = {2};
     CHECK(service.handle(request).status == fujinet::io::StatusCode::InvalidRequest);
 }
 

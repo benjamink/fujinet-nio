@@ -10,7 +10,7 @@ from .fujibus import FujiBusSession
 # -----------------------
 WIFI_SERVICE_ID = 0xF3
 WIFI_CMD_GET_ADAPTER_INFO = 0x05
-WIFI_VERSION = 1
+WIFI_VERSION = 1  # GET_ADAPTER_INFO: the highest version this client understands
 
 
 def build_get_adapter_info_req() -> bytes:
@@ -19,8 +19,10 @@ def build_get_adapter_info_req() -> bytes:
 
 def parse_get_adapter_info_resp(payload: bytes) -> Optional[str]:
     """version, MAC-present (u8), six MAC bytes. Returns "aa:bb:cc:dd:ee:ff",
-    or None when the adapter has no MAC to report."""
-    if len(payload) < 8 or payload[0] != WIFI_VERSION:
+    or None when the adapter has no MAC to report. The reply's version is the
+    lower of ours and the firmware's (protocol_reference.md, "Extending
+    commands")."""
+    if len(payload) < 8 or not 1 <= payload[0] <= WIFI_VERSION:
         raise ValueError("bad GET_ADAPTER_INFO response")
     if not payload[1]:
         return None

@@ -16,7 +16,7 @@ are never present in any response.
 | `GET_CONFIG` | `0x02` | version only |
 | `SET_CONFIG` | `0x03` | version, field flags, selected fields |
 | `SCAN` | `0x04` | version, offset `u16`, limit `u8` |
-| `GET_ADAPTER_INFO` | `0x05` | version only |
+| `GET_ADAPTER_INFO` | `0x05` | version (highest understood; see below) |
 
 `SET_CONFIG` field flags are `enabled=0x01`, `ssid=0x02`, `bssid=0x04`,
 `password=0x08`, `persist=0x10`, and `reconnect=0x20`. Enabled is one byte;
@@ -41,7 +41,11 @@ disconnect `0x0008`, scan `0x0010`, BSSID selection `0x0020`, host-managed
 `1`, POSIX host-managed `2`, and POSIX simulated `3`.
 
 `GET_ADAPTER_INFO` returns version, MAC-present (`u8`) and the six-byte station
-interface MAC address (zero when not present). It succeeds without a live link;
+interface MAC address (zero when not present). Unlike the older commands here,
+it follows the [extending-commands rules](protocol_reference.md#extending-commands):
+the client sends the highest version it understands, the reply uses the lower
+of that and the firmware's (`1` today), and bytes after the version are
+ignored. It succeeds without a live link;
 the MAC is then reported as not present. The ESP32 backend reports the factory
 station MAC (`esp_read_mac`), POSIX host mode reads
 `/sys/class/net/<FN_POSIX_WIFI_INTERFACE>/address` on Linux, and POSIX
