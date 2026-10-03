@@ -31,11 +31,7 @@
 #include "fujinet/platform/fuji_device_factory.h"
 #include "fujinet/platform/posix/fs_factory.h"
 #include "fujinet/platform/posix/wifi_link.h"
-
-// Quick forward declaration (we’ll make a proper header later).
-namespace fujinet {
-    const char* version();
-}
+#include "fujinet/core/version.h"
 
 using namespace fujinet;
 using namespace fujinet::io::protocol;

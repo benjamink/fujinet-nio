@@ -18,6 +18,7 @@ from .host_analysis.base import HostAnnotation
 DEVICE_NAMES: dict[int, str] = {
     0x70: "FujiNet",
     0x45: "Clock",
+    0xF3: "WifiService",
     0xFB: "ModemService",
     0xFC: "DiskService",
     0xFD: "NetworkService",
@@ -26,8 +27,16 @@ DEVICE_NAMES: dict[int, str] = {
 
 COMMAND_NAMES: dict[int, dict[int, str]] = {
     0x70: {
+        0x01: "GetInfo",
         0xFF: "Reset",
         0xFE: "GetSsid",
+    },
+    0xF3: {
+        0x01: "GetStatus",
+        0x02: "GetConfig",
+        0x03: "SetConfig",
+        0x04: "Scan",
+        0x05: "GetAdapterInfo",
     },
     0x45: {
         0x01: "GetTime",

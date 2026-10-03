@@ -1,3 +1,5 @@
+#include "fujinet/core/version.h"
+
 #include <string>
 #include <string_view>
 

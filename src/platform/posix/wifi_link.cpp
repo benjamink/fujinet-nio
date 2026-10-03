@@ -1,5 +1,6 @@
 #include "fujinet/platform/posix/wifi_link.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <utility>
@@ -98,6 +99,16 @@ void PosixWifiLink::poll()
 
 std::string PosixWifiLink::ip_address() const { return _ip; }
 net::WifiBssid PosixWifiLink::current_bssid() const { return {}; }
+
+net::MacAddress PosixWifiLink::mac_address() const
+{
+    if (_mode != WifiBackendMode::Simulated) return _mac;
+    net::MacAddress simulated;
+    const std::uint8_t bytes[6] = {0x02, 0x00, 0x00, 0x00, 0x00, 0xF0};
+    std::memcpy(simulated.bytes, bytes, sizeof(bytes));
+    simulated.valid = true;
+    return simulated;
+}
 std::int8_t PosixWifiLink::rssi() const { return 0; }
 std::string PosixWifiLink::subnet_mask() const { return _subnet; }
 std::string PosixWifiLink::gateway() const { return _gateway; }
@@ -179,6 +190,20 @@ void PosixWifiLink::refresh_host_state()
         break;
     }
     freeifaddrs(addresses);
+    _mac = {};
+#if defined(__linux__)
+    if (!_interface.empty()) {
+        const auto path = "/sys/class/net/" + _interface + "/address";
+        if (FILE* file = std::fopen(path.c_str(), "r")) {
+            unsigned int b[6];
+            if (std::fscanf(file, "%x:%x:%x:%x:%x:%x", &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) == 6) {
+                for (std::size_t i = 0; i < 6; ++i) _mac.bytes[i] = static_cast<std::uint8_t>(b[i]);
+                _mac.valid = true;
+            }
+            std::fclose(file);
+        }
+    }
+#endif
     _state = _ip.empty() ? net::LinkState::Disconnected : net::LinkState::Connected;
 #else
     _state = net::LinkState::Disconnected;

@@ -131,6 +131,7 @@ GetStatus
 GetConfig
 SetConfig
 Scan
+GetAdapterInfo
 }
 enum "io::protocol::ModemCommand" as C_0010997942004027913014
 enum C_0010997942004027913014 {

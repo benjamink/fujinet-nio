@@ -1527,6 +1527,7 @@ abstract C_0001548601329560013188 {
 +dns_server() const : std::string
 +gateway() const : std::string
 {abstract} +ip_address() const = 0 : std::string
++mac_address() const : WifiBssid
 {abstract} +poll() = 0 : void
 +rssi() const : std::int8_t
 +scan_wifi() : WifiScanResult

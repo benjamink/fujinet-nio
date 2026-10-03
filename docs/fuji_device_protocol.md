@@ -15,8 +15,31 @@ See:
 
 | Command | ID | Purpose |
 |--------:|---:|---------|
+| `GetInfo` | `0x01` | Report the firmware version and build profile |
 | `Reset`   | `0xFF` | Request a FujiNet reset/restart |
 | `GetSsid` | `0xFE` | Reserved; not currently implemented |
+
+## GetInfo (`0x01`)
+
+Describes this FujiNet. It needs no network or other device, so it answers
+quickly on any board.
+
+Request payload: version `u8` (`1`). Any other payload is `InvalidRequest`.
+
+Response payload:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| version | `u8` | `1` |
+| firmware version | `u8` length + text | at most 32 bytes, e.g. `0.1.1` |
+| build profile | `u8` length + text | at most 64 bytes, e.g. `S3 + FujiBus over GPIO (e.g. RS232)` |
+
+Later versions may append fields; clients ignore bytes they don't know.
+Firmware without this command answers `Unsupported`. The station MAC address
+comes from the Wi-Fi service's `GET_ADAPTER_INFO`
+([Wi-Fi service protocol](wifi_service_protocol.md)). On the console, `core.info`
+shows the same version and profile; from a host, `./scripts/fujinet --port <port>
+fuji info` asks for it.
 
 ## Reset (`0xFF`)
 

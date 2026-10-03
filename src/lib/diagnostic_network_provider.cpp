@@ -241,8 +241,11 @@ private:
             return DiagResult::ok(std::move(text));
         }
 
+        const std::string mac = net::to_string(link->mac_address());
         text += "link_state: ";
         text += link_state_name(link->state());
+        text += "\r\nmac: ";
+        text += mac.empty() ? "unavailable" : mac;
         text += "\r\nip: ";
         text += link->ip_address();
         text += "\r\nrssi: ";
@@ -260,6 +263,7 @@ private:
         DiagResult r = DiagResult::ok(text);
         r.kv.emplace_back("link_state", link_state_name(link->state()));
         r.kv.emplace_back("ip", link->ip_address());
+        r.kv.emplace_back("mac", mac);
         return r;
     }
 
