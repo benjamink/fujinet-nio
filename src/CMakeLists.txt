@@ -82,6 +82,7 @@ idf_component_register(
         lib/slip_framer.cpp
         lib/slot_catalog.cpp
         lib/slot_catalog_service.cpp
+        lib/stb_image_impl.cpp
         lib/storage_manager.cpp
         lib/tcp_channel.cpp
         lib/tcp_network_protocol_common.cpp
@@ -146,7 +147,6 @@ idf_component_register(
 # __TARGET_SOURCES_END__
         ../third_party/cjson/cJSON.c
         ../third_party/cjson/cJSON_Utils.c
-        lib/stb_image_impl.cpp
     INCLUDE_DIRS
         "../include"
         "../third_party/cjson"

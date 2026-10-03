@@ -140,7 +140,6 @@ target_sources(fujinet-nio
         ${FUJINET_NIO_SOURCES}
         third_party/cjson/cJSON.c
         third_party/cjson/cJSON_Utils.c
-        src/lib/stb_image_impl.cpp
 )
 
 

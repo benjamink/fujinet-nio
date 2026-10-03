@@ -188,6 +188,7 @@ set(FUJINET_NIO_SOURCES
         src/lib/slip_framer.cpp
         src/lib/slot_catalog.cpp
         src/lib/slot_catalog_service.cpp
+        src/lib/stb_image_impl.cpp
         src/lib/storage_manager.cpp
         src/lib/tcp_channel.cpp
         src/lib/tcp_network_protocol_common.cpp
@@ -288,7 +289,6 @@ target_sources(fujinet-nio
         ${FUJINET_NIO_SOURCES}
         third_party/cjson/cJSON.c
         third_party/cjson/cJSON_Utils.c
-        src/lib/stb_image_impl.cpp
 )
 
 
