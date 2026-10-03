@@ -547,6 +547,7 @@ None
 Json
 Xml
 Rss
+Image
 }
 class "io::TranslationConfig" as C_0011628969558439618672
 class C_0011628969558439618672 {
@@ -566,6 +567,7 @@ abstract C_0017172268465975245210 {
 +needs_full_body() const : bool
 {abstract} +read(std::uint32_t offset, std::uint8_t * out, std::size_t maxBytes, std::uint16_t & actual, bool & eof) const = 0 : StatusCode
 {abstract} +reset() = 0 : void
++translate(const std::uint8_t * data, std::size_t len) : StatusCode
 {abstract} +translated_size() const = 0 : std::uint64_t
 __
 }
@@ -576,9 +578,14 @@ class C_0011868125949252482179 {
 __
 -_factories : std::unordered_map<std::string,Factory>
 }
+class "io::NetworkDeviceSettings" as C_0007860874136713449920
+class C_0007860874136713449920 {
+__
++imageMaxPixels : std::uint32_t
+}
 class "io::NetworkDevice" as C_0006245826437162508923
 class C_0006245826437162508923 {
-+NetworkDevice(ProtocolRegistry registry) : void
++NetworkDevice(ProtocolRegistry registry, NetworkDeviceSettings settings = {}) : void
 ..
 -buffer_translation_body(Session & s) : StatusCode
 -close_and_free(Session & s) noexcept : void
@@ -589,7 +596,7 @@ class C_0006245826437162508923 {
 {static} -handle_generation(std::uint16_t h) noexcept : std::uint8_t
 {static} -handle_index(std::uint16_t h) noexcept : std::uint8_t
 {static} -make_handle(std::uint8_t idx, std::uint8_t gen) noexcept : std::uint16_t
-{static} -make_translator(ContentTranslationType type) : std::unique_ptr<IContentTranslator>
+{static} -make_translator(ContentTranslationType type, std::uint32_t imageMaxPixels) : std::unique_ptr<IContentTranslator>
 -pick_lru_victim() noexcept : Session *
 +poll() : void
 {static} -reset_translation(Session & s) noexcept : void
@@ -601,6 +608,7 @@ __
 {static} -NETPROTO_VERSION : const std::uint8_t
 -_registry : ProtocolRegistry
 -_sessions : std::array<Session,MAX_SESSIONS>
+-_settings : NetworkDeviceSettings
 -_tickNow : std::uint64_t
 }
 class "io::NetworkDevice::Session" as C_0011301425670680674257
@@ -632,8 +640,29 @@ class "io::NetworkDeviceDiagnosticsAccessor" as C_0010580021346264420268
 class C_0010580021346264420268 {
 {static} +close(NetworkDevice & dev, std::uint16_t handle) noexcept : bool
 {static} +close_all(NetworkDevice & dev) noexcept : std::size_t
+{static} +image_max_pixels(const NetworkDevice & dev) noexcept : std::uint32_t
 {static} +sessions(const NetworkDevice & dev) : std::vector<SessionRow>
+{static} +set_image_max_pixels(NetworkDevice & dev, std::uint32_t maxPixels) noexcept : void
 __
+}
+class "io::ImageContentTranslator" as C_0001436095100303722028
+class C_0001436095100303722028 {
++ImageContentTranslator(std::uint32_t maxPixels) : void
+..
++append_body(const std::uint8_t * data, std::size_t len) : StatusCode
++configure(const TranslationConfig & config) : StatusCode
+-convert(const std::uint8_t * data, std::size_t len) : StatusCode
++finalize() : StatusCode
++max_pixels() const noexcept : std::uint32_t
++read(std::uint32_t offset, std::uint8_t * out, std::size_t maxBytes, std::uint16_t & actual, bool & eof) const : StatusCode
++reset() : void
++translate(const std::uint8_t * data, std::size_t len) : StatusCode
++translated_size() const : std::uint64_t
+__
+-_body : std::vector<std::uint8_t>
+-_maxPixels : std::uint32_t
+-_options : image::Options
+-_out : std::vector<std::uint8_t>
 }
 class "io::StubNetworkProtocol" as C_0011683483391837494806
 class C_0011683483391837494806 {
@@ -691,6 +720,10 @@ __
 +lastActivityTick : std::uint64_t
 +method : std::uint8_t
 +receivedBodyLen : std::uint32_t
++translatedSize : std::uint64_t
++translationReady : bool
++translationSelector : std::string
++translationType : std::uint8_t
 +url : std::string
 }
 class "io::HostState" as C_0000340960947726784289
@@ -1345,12 +1378,16 @@ C_0006245826437162508923 ..> C_0017172268465975245210
 C_0006245826437162508923 ..> C_0011628969558439618672
 C_0006245826437162508923 ..> C_0012496700434923238249
 C_0006245826437162508923 o-- C_0011868125949252482179 : -_registry
+C_0006245826437162508923 o-- C_0007860874136713449920 : -_settings
 C_0006245826437162508923 <.. C_0010580021346264420268 : +<<friend>>
 C_0010069830097413987109 <|-- C_0006245826437162508923
 C_0011301425670680674257 --+ C_0006245826437162508923
 C_0011301425670680674257 o-- C_0011628969558439618672 : +translation
 C_0010580021346264420268 ..> C_0006245826437162508923
 C_0010580021346264420268 ..> C_0007753937317853453679
+C_0001436095100303722028 ..> C_0011628969558439618672
+C_0001436095100303722028 ..> C_0012496700434923238249
+C_0017172268465975245210 <|-- C_0001436095100303722028
 C_0011683483391837494806 ..> C_0012496700434923238249
 C_0011683483391837494806 ..> C_0007100525671922339382
 C_0011683483391837494806 o-- C_0001159279330674149840 : -_openReq
