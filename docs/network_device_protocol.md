@@ -350,15 +350,35 @@ before those keys existed.
 Conversion runs synchronously inside the first `Info`, `Read` or
 `TranslateConfigure` that finds the whole body, so the device answers nothing
 else until it finishes. Allow for it in the client's timeout for that
-request. Debug builds log one line per conversion under the `image` tag with
-the source and output size and the time of each stage (decode, scale,
-palette, quantise/dither, write, total).
+request. Firmware built with `FN_DEBUG` logs one line per conversion under
+the `image` tag with the source and output size and the time of each stage
+(decode, scale, palette, quantise/dither, write, total). Without `FN_DEBUG`
+every `FN_LOG*` call compiles away (`include/fujinet/core/logging.h`).
+
+- POSIX: a CMake `Debug` build defines `FN_DEBUG` (the `*-debug` presets).
+- ESP32: no PlatformIO env defines it, and `build_type = debug` does not
+  either. Add it in your `platformio.local.ini`, which `./build.sh -b` merges
+  into the generated `platformio.ini`:
+
+  ```ini
+  [env]
+  build_flags +=
+      -DFN_DEBUG
+  ```
+
+  Rebuild and flash, then read the `image:` line on the board's log output
+  (the log UART on `*-uart-log-*` boards).
 
 | platform | source | selector | total |
 |---|---|---|---|
 | POSIX, Debug build, i7-13800H | 700x500 colour PNG | default (559x399, 16 colours) | 55-65 ms (40 ms of it quantise/dither) |
 | POSIX, Debug build, i7-13800H | 700x700 noise PNG (the ESP32 cap) | `up=1,w=1024,h=1024,colors=32` | about 410 ms |
-| ESP32-S3 | 700x700 noise PNG (the cap) | `up=1,w=1024,h=1024,colors=32` | **TODO: measure on S3 hardware** |
+| ESP32-S3 | 700x700 noise PNG (the cap) | `up=1,w=1024,h=1024,colors=32` | **TODO: measure on S3 hardware** (needs `-DFN_DEBUG`, see above) |
+
+The POSIX worst case at the ESP32 cap is already about 410 ms, so the S3
+figure may well be seconds. If it is, lower the ESP32 default cap
+(`platform::default_image_max_pixels()`) or make sure client timeouts for
+the first `Info`/`Read` allow for it.
 
 ##### Compatibility
 
