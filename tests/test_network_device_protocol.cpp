@@ -1,7 +1,11 @@
 // tests/test_network_device_protocol.cpp
 
 #include "doctest.h"
+#include "image_fixtures.h"
 #include "net_device_test_helpers.h"
+
+#include <algorithm>
+#include <cstring>
 
 using namespace fujinet::tests::netdev;
 
@@ -949,4 +953,241 @@ TEST_CASE("NetworkDevice v1: Open content profile does not override explicit Con
     REQUIRE(r.read_u16le(reserved));
     REQUIRE(r.read_u16le(handle));
     CHECK(close_req(dev, deviceId, handle).status == StatusCode::Ok);
+}
+
+// ---------------------------------------------------------------------------
+// Image translation (type 4)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Serves a fixed body (an image) for any URL, like an HTTP GET.
+class FixedBodyProtocol final : public fujinet::io::INetworkProtocol {
+public:
+    FixedBodyProtocol(const std::uint8_t* body, std::size_t len)
+        : _body(body, body + len)
+    {}
+
+    StatusCode open(const fujinet::io::NetworkOpenRequest&) override { return StatusCode::Ok; }
+
+    StatusCode write_body(std::uint32_t, const std::uint8_t*, std::size_t, std::uint16_t& written) override
+    {
+        written = 0;
+        return StatusCode::Unsupported;
+    }
+
+    StatusCode read_body(std::uint32_t offset,
+                         std::uint8_t* out,
+                         std::size_t outLen,
+                         std::uint16_t& read,
+                         bool& eof,
+                         bool& more_available) override
+    {
+        const std::size_t off = std::min<std::size_t>(offset, _body.size());
+        const std::size_t n = std::min<std::size_t>({outLen, _body.size() - off, 0xFFFFu});
+        if (n > 0) {
+            std::memcpy(out, _body.data() + off, n);
+        }
+        read = static_cast<std::uint16_t>(n);
+        eof = off + n >= _body.size();
+        more_available = !eof;
+        return StatusCode::Ok;
+    }
+
+    StatusCode info(fujinet::io::NetworkInfo& out) override
+    {
+        out = fujinet::io::NetworkInfo{};
+        out.hasHttpStatus = true;
+        out.httpStatus = 200;
+        out.hasContentLength = true;
+        out.contentLength = _body.size();
+        return StatusCode::Ok;
+    }
+
+    void poll() override {}
+    void close() override {}
+
+private:
+    std::vector<std::uint8_t> _body;
+};
+
+template <std::size_t N>
+fujinet::io::ProtocolRegistry make_image_registry(const std::uint8_t (&body)[N])
+{
+    fujinet::io::ProtocolRegistry reg;
+    reg.register_scheme("http", [&body] { return std::make_unique<FixedBodyProtocol>(body, N); });
+    return reg;
+}
+
+struct ReadResult {
+    StatusCode status{StatusCode::InternalError};
+    std::string data;
+    bool eof{false};
+};
+
+ReadResult read_chunk(NetworkDevice& dev, std::uint16_t deviceId, std::uint16_t handle,
+                      std::uint32_t offset, std::uint16_t maxBytes)
+{
+    ReadResult out;
+    IOResponse resp = read_req(dev, deviceId, handle, offset, maxBytes);
+    out.status = resp.status;
+    if (resp.status != StatusCode::Ok) {
+        return out;
+    }
+    netproto::Reader r(resp.payload.data(), resp.payload.size());
+    std::uint8_t ver = 0;
+    std::uint8_t flags = 0;
+    std::uint16_t reserved = 0;
+    std::uint16_t h = 0;
+    std::uint32_t offEcho = 0;
+    std::uint16_t len = 0;
+    REQUIRE(r.read_u8(ver));
+    REQUIRE(r.read_u8(flags));
+    REQUIRE(r.read_u16le(reserved));
+    REQUIRE(r.read_u16le(h));
+    REQUIRE(r.read_u32le(offEcho));
+    REQUIRE(r.read_u16le(len));
+    const std::uint8_t* ptr = nullptr;
+    REQUIRE(r.read_bytes(ptr, len));
+    out.data.assign(reinterpret_cast<const char*>(ptr), len);
+    out.eof = (flags & 0x01) != 0;
+    return out;
+}
+
+// Read the whole translated view.
+std::string read_all(NetworkDevice& dev, std::uint16_t deviceId, std::uint16_t handle)
+{
+    std::string all;
+    for (int guard = 0; guard < 1000; ++guard) {
+        const ReadResult chunk = read_chunk(dev, deviceId, handle, static_cast<std::uint32_t>(all.size()), 512);
+        REQUIRE(chunk.status == StatusCode::Ok);
+        all += chunk.data;
+        if (chunk.eof || chunk.data.empty()) {
+            break;
+        }
+    }
+    return all;
+}
+
+std::uint64_t info_content_length(NetworkDevice& dev, std::uint16_t deviceId, std::uint16_t handle)
+{
+    IOResponse resp = info_req(dev, deviceId, handle);
+    REQUIRE(resp.status == StatusCode::Ok);
+    netproto::Reader r(resp.payload.data(), resp.payload.size());
+    std::uint8_t ver = 0;
+    std::uint8_t flags = 0;
+    std::uint16_t reserved = 0;
+    std::uint16_t h = 0;
+    std::uint16_t httpStatus = 0;
+    std::uint64_t contentLength = 0;
+    REQUIRE(r.read_u8(ver));
+    REQUIRE(r.read_u8(flags));
+    REQUIRE(r.read_u16le(reserved));
+    REQUIRE(r.read_u16le(h));
+    REQUIRE(r.read_u16le(httpStatus));
+    REQUIRE(r.read_u64le(contentLength));
+    return contentLength;
+}
+
+} // namespace
+
+TEST_CASE("NetworkDevice v1: Open-time Image translation reads back FORM ILBM")
+{
+    NetworkDevice dev(make_image_registry(fujinet::tests::image::kPngColour16x12));
+    const auto deviceId = to_device_id(WireDeviceId::NetworkService);
+
+    const std::uint16_t handle = open_handle_stub(
+        dev, deviceId, "http://example.com/a.png", 1, 0, 0, {},
+        fujinet::io::ContentTranslationType::Image, "");
+
+    const std::string ilbm = read_all(dev, deviceId, handle);
+    REQUIRE(ilbm.size() >= 12);
+    CHECK(ilbm.substr(0, 4) == "FORM");
+    CHECK(ilbm.substr(8, 4) == "ILBM");
+    CHECK(info_content_length(dev, deviceId, handle) == ilbm.size());
+
+    const std::vector<std::uint8_t> bytes(ilbm.begin(), ilbm.end());
+    CHECK(fujinet::tests::image::fnv1a(bytes) == 0xBDA7F5DFu);   // as ImageGolden
+
+    CHECK(close_req(dev, deviceId, handle).status == StatusCode::Ok);
+}
+
+TEST_CASE("NetworkDevice v1: Image selector errors fail at Open with InvalidRequest")
+{
+    NetworkDevice dev(make_image_registry(fujinet::tests::image::kPngColour16x12));
+    const auto deviceId = to_device_id(WireDeviceId::NetworkService);
+
+    for (const char* selector : {"colors=99", "bogus=1", "w=16,w=16", "bits=9", "fmt=png", "fmt="}) {
+        CAPTURE(selector);
+        IOResponse resp = open_req(dev, deviceId, "http://example.com/a.png",
+                                   fujinet::io::ContentTranslationType::Image, selector);
+        CHECK(resp.status == StatusCode::InvalidRequest);
+    }
+
+    // The failed opens left no session behind: all four handles are free.
+    for (int i = 0; i < 4; ++i) {
+        open_handle_stub(dev, deviceId, "http://example.com/a.png");
+    }
+}
+
+TEST_CASE("NetworkDevice v1: Image accepts fmt=ilbm and bits at Open")
+{
+    NetworkDevice dev(make_image_registry(fujinet::tests::image::kPngColour16x12));
+    const auto deviceId = to_device_id(WireDeviceId::NetworkService);
+
+    const std::uint16_t handle = open_handle_stub(
+        dev, deviceId, "http://example.com/a.png", 1, 0, 0, {},
+        fujinet::io::ContentTranslationType::Image, "fmt=ilbm,bits=8,colors=8");
+    const std::string ilbm = read_all(dev, deviceId, handle);
+    CHECK(ilbm.substr(0, 4) == "FORM");
+    CHECK(ilbm.substr(8, 4) == "ILBM");
+}
+
+TEST_CASE("NetworkDevice v1: undecodable Image body fails Read with InvalidRequest")
+{
+    NetworkDevice dev(make_stub_registry_http_only());
+    const auto deviceId = to_device_id(WireDeviceId::NetworkService);
+
+    const std::uint16_t handle = open_handle_stub(
+        dev, deviceId, "http://example.com/not-an-image", 1, 0, 0, {},
+        fujinet::io::ContentTranslationType::Image, "");
+    CHECK(read_req(dev, deviceId, handle, 0, 64).status == StatusCode::InvalidRequest);
+}
+
+TEST_CASE("NetworkDevice v1: TranslateConfigure re-runs Image translation on the cached body")
+{
+    NetworkDevice dev(make_image_registry(fujinet::tests::image::kPngColour16x12));
+    const auto deviceId = to_device_id(WireDeviceId::NetworkService);
+
+    const std::uint16_t handle = open_handle_stub(
+        dev, deviceId, "http://example.com/a.png", 1, 0, 0, {},
+        fujinet::io::ContentTranslationType::Image, "");
+    const std::string first = read_all(dev, deviceId, handle);
+    REQUIRE(first.substr(0, 4) == "FORM");
+
+    auto translate = [&](const char* selector) {
+        std::string qp;
+        netproto::write_u8(qp, V);
+        netproto::write_u16le(qp, handle);
+        netproto::write_u8(qp, 4); // translationType=Image
+        netproto::write_u8(qp, 0); // translationFlags
+        netproto::write_lp_u16_string(qp, selector);
+        IORequest qreq{};
+        qreq.id = 950;
+        qreq.deviceId = deviceId;
+        qreq.command = 0x07;
+        qreq.payload = to_vec(qp);
+        return dev.handle(qreq);
+    };
+
+    REQUIRE(translate("up=1,colors=5").status == StatusCode::Ok);
+    const std::string second = read_all(dev, deviceId, handle);
+    const std::vector<std::uint8_t> bytes(second.begin(), second.end());
+    CHECK(fujinet::tests::image::fnv1a(bytes) == 0x95302CF1u);   // as ImageGolden
+
+    // Same selector again on the same cached body: same bytes.
+    REQUIRE(translate("").status == StatusCode::Ok);
+    CHECK(read_all(dev, deviceId, handle) == first);
+
+    CHECK(translate("fmt=gif").status == StatusCode::InvalidRequest);
 }
