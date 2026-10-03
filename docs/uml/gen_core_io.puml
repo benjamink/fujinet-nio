@@ -557,6 +557,12 @@ __
 +selector : std::string
 +type : ContentTranslationType
 }
+class "io::TranslationStats" as C_0004780908354335618069
+class C_0004780908354335618069 {
+__
++detail : std::string
++stack : core::LargeStackReport
+}
 abstract "io::IContentTranslator" as C_0017172268465975245210
 abstract C_0017172268465975245210 {
 +~IContentTranslator() constexpr = default : void
@@ -564,6 +570,7 @@ abstract C_0017172268465975245210 {
 {abstract} +append_body(const std::uint8_t * data, std::size_t len) = 0 : StatusCode
 {abstract} +configure(const TranslationConfig & config) = 0 : StatusCode
 {abstract} +finalize() = 0 : StatusCode
++last_stats() const : TranslationStats
 +needs_full_body() const : bool
 {abstract} +read(std::uint32_t offset, std::uint8_t * out, std::size_t maxBytes, std::uint16_t & actual, bool & eof) const = 0 : StatusCode
 {abstract} +reset() = 0 : void
@@ -582,6 +589,17 @@ class "io::NetworkDeviceSettings" as C_0007860874136713449920
 class C_0007860874136713449920 {
 __
 +imageMaxPixels : std::uint32_t
++largeStackRunner : core::LargeStackRunner
+}
+class "io::TranslationLogEntry" as C_0011259663103801980421
+class C_0011259663103801980421 {
+__
++bodyBytes : std::uint64_t
++elapsedMs : std::uint32_t
++stats : TranslationStats
++status : StatusCode
++translatedBytes : std::uint64_t
++type : ContentTranslationType
 }
 class "io::NetworkDevice" as C_0006245826437162508923
 class C_0006245826437162508923 {
@@ -596,9 +614,10 @@ class C_0006245826437162508923 {
 {static} -handle_generation(std::uint16_t h) noexcept : std::uint8_t
 {static} -handle_index(std::uint16_t h) noexcept : std::uint8_t
 {static} -make_handle(std::uint8_t idx, std::uint8_t gen) noexcept : std::uint16_t
-{static} -make_translator(ContentTranslationType type, std::uint32_t imageMaxPixels) : std::unique_ptr<IContentTranslator>
+{static} -make_translator(ContentTranslationType type, const NetworkDeviceSettings & settings) : std::unique_ptr<IContentTranslator>
 -pick_lru_victim() noexcept : Session *
 +poll() : void
+-record_translation(TranslationLogEntry entry) : void
 {static} -reset_translation(Session & s) noexcept : void
 -touch(Session & s) noexcept : void
 {static} -translation_enabled(const Session & s) noexcept : bool
@@ -606,10 +625,15 @@ __
 {static} -IDLE_TIMEOUT_TICKS : const std::uint64_t
 {static} -MAX_SESSIONS : const std::size_t
 {static} -NETPROTO_VERSION : const std::uint8_t
+{static} -TRANSLATION_LOG_SIZE : const std::size_t
 -_registry : ProtocolRegistry
 -_sessions : std::array<Session,MAX_SESSIONS>
 -_settings : NetworkDeviceSettings
 -_tickNow : std::uint64_t
+-_translationCount : std::uint32_t
+-_translationFailures : std::uint32_t
+-_translationLog : std::array<TranslationLogEntry,TRANSLATION_LOG_SIZE>
+-_translationLogNext : std::size_t
 }
 class "io::NetworkDevice::Session" as C_0011301425670680674257
 class C_0011301425670680674257 {
@@ -643,16 +667,21 @@ class C_0010580021346264420268 {
 {static} +image_max_pixels(const NetworkDevice & dev) noexcept : std::uint32_t
 {static} +sessions(const NetworkDevice & dev) : std::vector<SessionRow>
 {static} +set_image_max_pixels(NetworkDevice & dev, std::uint32_t maxPixels) noexcept : void
+{static} +translation_log(const NetworkDevice & dev) : std::vector<TranslationLogEntry>
+{static} +translation_totals(const NetworkDevice & dev) noexcept : TranslationTotals
 __
 }
 class "io::ImageContentTranslator" as C_0001436095100303722028
 class C_0001436095100303722028 {
-+ImageContentTranslator(std::uint32_t maxPixels) : void
++ImageContentTranslator(std::uint32_t maxPixels, core::LargeStackRunner runner = nullptr) : void
 ..
 +append_body(const std::uint8_t * data, std::size_t len) : StatusCode
 +configure(const TranslationConfig & config) : StatusCode
 -convert(const std::uint8_t * data, std::size_t len) : StatusCode
+-convert_here(const std::uint8_t * data, std::size_t len) : StatusCode
+{static} -convert_job(void * job) : void
 +finalize() : StatusCode
++last_stats() const : TranslationStats
 +max_pixels() const noexcept : std::uint32_t
 +read(std::uint32_t offset, std::uint8_t * out, std::size_t maxBytes, std::uint16_t & actual, bool & eof) const : StatusCode
 +reset() : void
@@ -663,6 +692,17 @@ __
 -_maxPixels : std::uint32_t
 -_options : image::Options
 -_out : std::vector<std::uint8_t>
+-_runner : core::LargeStackRunner
+-_stats : TranslationStats
+{static} +kConvertStackBytes : const std::size_t
+}
+class "io::ConvertJob" as C_0000606267497324263766
+class C_0000606267497324263766 {
+__
++data : const std::uint8_t *
++len : std::size_t
++result : StatusCode
++translator : ImageContentTranslator *
 }
 class "io::StubNetworkProtocol" as C_0011683483391837494806
 class C_0011683483391837494806 {
@@ -725,6 +765,12 @@ __
 +translationSelector : std::string
 +translationType : std::uint8_t
 +url : std::string
+}
+class "io::NetworkDeviceDiagnosticsAccessor::TranslationTotals" as C_0011180404073657933248
+class C_0011180404073657933248 {
+__
++count : std::uint32_t
++failures : std::uint32_t
 }
 class "io::HostState" as C_0000340960947726784289
 class C_0000340960947726784289 {
@@ -1292,6 +1338,14 @@ __
 -_network : EventStream<net::NetworkEvent>
 -_time : EventStream<time::TimeEvent>
 }
+class "core::LargeStackReport" as C_0002764039840879442315
+class C_0002764039840879442315 {
+__
++heapFreeBeforeBytes : std::size_t
++heapLargestBlockBytes : std::size_t
++heapLowestFreeBytes : std::size_t
++stackUsedBytes : std::size_t
+}
 C_0006392424685935755622 o-- C_0005635211274124367418 : -_state
 C_0005635211274124367418 --+ C_0006392424685935755622
 C_0008686573398797909484 o-- C_0013970161679530750266 : +response_style
@@ -1367,11 +1421,17 @@ C_0005273847708888915350 --> C_0010794218937492142358 : -_deviceManager
 C_0005273847708888915350 --> C_0007350464861923755413 : -_overrideHandler
 C_0007350464861923755413 <|-- C_0005273847708888915350
 C_0011628969558439618672 o-- C_0018307773322721098785 : +type
+C_0004780908354335618069 o-- C_0002764039840879442315 : +stack
 C_0017172268465975245210 ..> C_0011628969558439618672
 C_0017172268465975245210 ..> C_0012496700434923238249
+C_0017172268465975245210 ..> C_0004780908354335618069
 C_0011868125949252482179 ..> C_0010613333864250568344
+C_0011259663103801980421 o-- C_0018307773322721098785 : +type
+C_0011259663103801980421 o-- C_0012496700434923238249 : +status
+C_0011259663103801980421 o-- C_0004780908354335618069 : +stats
 C_0006245826437162508923 ..> C_0002386736627821114488
 C_0006245826437162508923 ..> C_0002942984525013396621
+C_0006245826437162508923 ..> C_0011259663103801980421
 C_0006245826437162508923 ..> C_0011301425670680674257
 C_0006245826437162508923 ..> C_0018307773322721098785
 C_0006245826437162508923 ..> C_0017172268465975245210
@@ -1385,9 +1445,14 @@ C_0011301425670680674257 --+ C_0006245826437162508923
 C_0011301425670680674257 o-- C_0011628969558439618672 : +translation
 C_0010580021346264420268 ..> C_0006245826437162508923
 C_0010580021346264420268 ..> C_0007753937317853453679
+C_0010580021346264420268 ..> C_0011180404073657933248
+C_0010580021346264420268 ..> C_0011259663103801980421
 C_0001436095100303722028 ..> C_0011628969558439618672
 C_0001436095100303722028 ..> C_0012496700434923238249
+C_0001436095100303722028 o-- C_0004780908354335618069 : -_stats
 C_0017172268465975245210 <|-- C_0001436095100303722028
+C_0000606267497324263766 --> C_0001436095100303722028 : +translator
+C_0000606267497324263766 o-- C_0012496700434923238249 : +result
 C_0011683483391837494806 ..> C_0012496700434923238249
 C_0011683483391837494806 ..> C_0007100525671922339382
 C_0011683483391837494806 o-- C_0001159279330674149840 : -_openReq
@@ -1398,6 +1463,7 @@ C_0017172268465975245210 <|-- C_0006788839814876680044
 C_0015834173540824165561 o-- C_0011628969558439618672 : +translation
 C_0015834173540824165561 o-- C_0014462224694841349318 : +contentProfile
 C_0007753937317853453679 --+ C_0010580021346264420268
+C_0011180404073657933248 --+ C_0010580021346264420268
 C_0000340960947726784289 --> C_0001279065520068563954 : -_storage
 C_0014582132463805045490 ..> C_0008542343802949846318
 C_0003433839086217597071 ..> C_0002386736627821114488
