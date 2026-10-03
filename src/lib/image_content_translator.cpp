@@ -11,42 +11,10 @@ namespace fujinet::io {
 
 namespace {
 
-// The log macros compile away in release builds, taking every use of these.
+// The log macros compile away in release builds, taking every use of this.
 [[maybe_unused]] const char* const TAG = "image";
 
-[[maybe_unused]] unsigned whole_ms(std::uint32_t us)
-{
-    return static_cast<unsigned>(us / 1000);
-}
-
-[[maybe_unused]] unsigned frac_ms(std::uint32_t us)
-{
-    return static_cast<unsigned>(us % 1000);
-}
-
 } // namespace
-
-// One line per conversion, so the cost on a target can be read from its log.
-void ImageContentTranslator::log_timings([[maybe_unused]] const image::PipelineReport& report,
-                                         [[maybe_unused]] image::Size output,
-                                         [[maybe_unused]] std::uint32_t writeUs,
-                                         [[maybe_unused]] std::uint32_t totalUs) const
-{
-    [[maybe_unused]] const image::PipelineTimings& t = report.timings;
-    FN_LOGI(TAG,
-            "%dx%d -> %dx%d %.*s bits=%d colors=%d: decode %u.%03u ms, scale %u.%03u ms, "
-            "palette %u.%03u ms, quantise/dither %u.%03u ms, write %u.%03u ms, total %u.%03u ms, %u bytes",
-            report.source.w, report.source.h,
-            output.w, output.h,
-            static_cast<int>(_options.format->name.size()), _options.format->name.data(), _options.bits, _options.colors,
-            whole_ms(t.decodeUs), frac_ms(t.decodeUs),
-            whole_ms(t.scaleUs), frac_ms(t.scaleUs),
-            whole_ms(t.paletteUs), frac_ms(t.paletteUs),
-            whole_ms(t.mapUs), frac_ms(t.mapUs),
-            whole_ms(writeUs), frac_ms(writeUs),
-            whole_ms(totalUs), frac_ms(totalUs),
-            static_cast<unsigned>(_out.size()));
-}
 
 ImageContentTranslator::ImageContentTranslator(std::uint32_t maxPixels)
     : _maxPixels(maxPixels)
@@ -107,28 +75,30 @@ StatusCode ImageContentTranslator::convert(const std::uint8_t* data, std::size_t
         return StatusCode::InvalidRequest;      // not configured
     }
 
-    image::Stopwatch total;
     image::IndexedImage indexed;
-    image::PipelineReport report;
-    const StatusCode st = image::decode_to_indexed(data, len, _maxPixels, _options, indexed, report);
+    image::Size source{0, 0};
+    const StatusCode st = image::decode_to_indexed(data, len, _maxPixels, _options, indexed, source);
     if (st != StatusCode::Ok) {
         FN_LOGW(TAG, "%dx%d source not converted (status %u, cap %u pixels)",
-                report.source.w,
-                report.source.h,
+                source.w,
+                source.h,
                 static_cast<unsigned>(st),
                 static_cast<unsigned>(_maxPixels));
         return st;
     }
 
-    image::Stopwatch write;
     try {
         _out = _options.format->write(indexed, _options);
     } catch (const std::bad_alloc&) {
         std::vector<std::uint8_t>().swap(_out);
         return StatusCode::Unsupported;
     }
-    const std::uint32_t writeUs = write.lap_us();
-    log_timings(report, indexed.size, writeUs, total.lap_us());
+    FN_LOGI(TAG, "%dx%d -> %dx%d %.*s bits=%d colors=%d, %u bytes",
+            source.w, source.h,
+            indexed.size.w, indexed.size.h,
+            static_cast<int>(_options.format->name.size()), _options.format->name.data(),
+            _options.bits, _options.colors,
+            static_cast<unsigned>(_out.size()));
     return StatusCode::Ok;
 }
 

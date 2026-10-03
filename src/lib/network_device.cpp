@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -360,9 +361,19 @@ StatusCode NetworkDevice::finalize_translation(Session& s)
     // The cache stays: TranslateConfigure re-runs translation on it. The
     // translator only reads it here, so one that can work from the buffer
     // (Image) does not hold a second copy of the body.
+    // Translation runs inside this request and blocks the device until it
+    // finishes, so its time is logged (debug builds) for every translator.
+    [[maybe_unused]] const auto started = std::chrono::steady_clock::now();
     const StatusCode translateSt = s.translator->translate(
         reinterpret_cast<const std::uint8_t*>(s.responseBodyCache.data()),
         s.responseBodyCache.size());
+    [[maybe_unused]] const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started).count();
+    FN_LOGI("net", "translation type=%u: %zu bytes in %ld ms, status %u",
+            static_cast<unsigned>(s.translation.type),
+            s.responseBodyCache.size(),
+            static_cast<long>(elapsedMs),
+            static_cast<unsigned>(translateSt));
     if (translateSt != StatusCode::Ok) {
         s.translationReady = false;
         return translateSt;

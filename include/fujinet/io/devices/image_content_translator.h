@@ -34,10 +34,6 @@ public:
 
 private:
     StatusCode convert(const std::uint8_t* data, std::size_t len);
-    void log_timings(const image::PipelineReport& report,
-                     image::Size output,
-                     std::uint32_t writeUs,
-                     std::uint32_t totalUs) const;
 
     image::Options _options{};
     std::vector<std::uint8_t> _body;
