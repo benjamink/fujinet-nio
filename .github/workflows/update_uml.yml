@@ -2,6 +2,7 @@ name: Update UML diagrams
 
 on:
   push:
+    branches: [master]
     paths:
       - 'src/**'
       - 'include/**'
@@ -16,6 +17,8 @@ permissions:
 
 jobs:
   uml:
+    # Forks would commit their own diagrams into contributors' branches.
+    if: github.repository == 'markjfisher/fujinet-nio'
     runs-on: ubuntu-latest
 
     steps:
