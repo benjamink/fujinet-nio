@@ -18,6 +18,17 @@ enum class OutputFormat : std::uint8_t {
     Ilbm,
 };
 
+// Palette depth (bits per RGB channel) used when the selector has no `bits`
+// key. The one place each format's default lives.
+constexpr int default_palette_bits(OutputFormat format)
+{
+    switch (format) {
+        case OutputFormat::Ilbm:
+            return 4;       // Amiga OCS: 12-bit colour
+    }
+    return 4;
+}
+
 enum class ColourMode : std::uint8_t {
     Auto,
     Gray,
@@ -31,7 +42,7 @@ struct Options {
     int base = 0;
     int parX = 1;
     int parY = 1;
-    int bits = 4;                       // bits per RGB channel in the palette
+    int bits = default_palette_bits(OutputFormat::Ilbm);   // bits per RGB channel
     bool dither = true;
     ColourMode mode = ColourMode::Auto;
     bool upscale = false;
@@ -88,9 +99,6 @@ constexpr int kMaxPaletteBits = 8;
 // Parse the translator selector (`key=value,...`). Returns false for an
 // unknown or repeated key, a value out of range, or an unknown `fmt`.
 bool parse_selector(const std::string& selector, Options& out);
-
-// Palette depth used when the selector has no `bits` key.
-int default_palette_bits(OutputFormat format);
 
 // Snap an 8-bit channel value to the nearest of 2^bits evenly spaced levels
 // (0 and 255 included). bits=4 is the Amiga OCS grid, bits=8 leaves it alone.

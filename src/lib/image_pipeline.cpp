@@ -494,15 +494,6 @@ std::uint32_t Stopwatch::lap_us()
     return static_cast<std::uint32_t>(us);
 }
 
-int default_palette_bits(OutputFormat format)
-{
-    switch (format) {
-        case OutputFormat::Ilbm:
-            return 4;       // Amiga OCS: 12-bit colour
-    }
-    return 4;
-}
-
 std::uint8_t snap_channel(int value, int bits)
 {
     const int levels = (1 << bits) - 1;
