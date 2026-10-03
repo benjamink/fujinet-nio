@@ -321,3 +321,35 @@ TEST_CASE("ImagePipeline: dither=none is nearest colour, fs diffuses the error")
     CHECK(white > w * h * 2 / 5);
     CHECK(white < w * h * 3 / 5);
 }
+
+TEST_CASE("ImagePipeline: decode_to_indexed reports the source size and stage timings")
+{
+    // 2x1 PNG: black, white.
+    const std::uint8_t png[] = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x7B, 0x40, 0xE8,
+        0xDD, 0x00, 0x00, 0x00, 0x0F, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x60, 0x60, 0x60, 0xF8,
+        0xFF, 0xFF, 0x3F, 0x00, 0x06, 0x01, 0x02, 0xFE, 0x02, 0xB2, 0x39, 0xAE, 0x00, 0x00, 0x00, 0x00,
+        0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    };
+    Options o;
+    REQUIRE(parse_selector("up=1,w=64,h=32", o));
+    IndexedImage image;
+    PipelineReport report;
+    REQUIRE(decode_to_indexed(png, sizeof(png), 100, o, image, report) == fujinet::io::StatusCode::Ok);
+    CHECK(report.source.w == 2);
+    CHECK(report.source.h == 1);
+    CHECK(image.size.w == 64);
+    CHECK(image.size.h == 32);
+    CHECK(image.pixels.size() == 64u * 32u);
+    // The stages ran in order inside one call: their sum fits in a second.
+    const std::uint64_t sum = std::uint64_t{report.timings.decodeUs} + report.timings.scaleUs +
+                              report.timings.paletteUs + report.timings.mapUs;
+    CHECK(sum < 1000000u);
+
+    // A failed decode still reports what it learnt.
+    PipelineReport tooBig;
+    CHECK(decode_to_indexed(png, sizeof(png), 1, o, image, tooBig) == fujinet::io::StatusCode::Unsupported);
+    CHECK(tooBig.source.w == 2);
+    CHECK(tooBig.source.h == 1);
+}

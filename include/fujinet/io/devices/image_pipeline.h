@@ -3,6 +3,7 @@
 
 #include "fujinet/io/core/io_message.h"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -56,6 +57,31 @@ struct IndexedImage {
     std::vector<Rgb> palette;
 };
 
+// Time spent in each stage of decode_to_indexed(), in microseconds.
+struct PipelineTimings {
+    std::uint32_t decodeUs = 0;
+    std::uint32_t scaleUs = 0;
+    std::uint32_t paletteUs = 0;
+    std::uint32_t mapUs = 0;            // quantise and dither
+};
+
+// What decode_to_indexed() learnt, for logging; filled in as far as it got.
+struct PipelineReport {
+    Size source{0, 0};
+    PipelineTimings timings;
+};
+
+// Times the stages of a conversion with the monotonic clock.
+class Stopwatch {
+public:
+    Stopwatch();
+    // Microseconds since construction or the previous lap.
+    std::uint32_t lap_us();
+
+private:
+    std::chrono::steady_clock::time_point _last;
+};
+
 // Highest value accepted for the `bits` selector key (full 24-bit colour).
 constexpr int kMaxPaletteBits = 8;
 
@@ -85,6 +111,7 @@ StatusCode decode_to_indexed(const std::uint8_t* data,
                              std::size_t len,
                              std::uint32_t maxPixels,
                              const Options& o,
-                             IndexedImage& out);
+                             IndexedImage& out,
+                             PipelineReport& report);
 
 } // namespace fujinet::io::image

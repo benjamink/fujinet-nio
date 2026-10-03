@@ -4,6 +4,7 @@
 #include "stb_image.h"
 
 #include <algorithm>
+#include <chrono>
 #include <climits>
 #include <cstdlib>
 #include <new>
@@ -481,6 +482,18 @@ private:
 
 } // namespace
 
+Stopwatch::Stopwatch()
+    : _last(std::chrono::steady_clock::now())
+{}
+
+std::uint32_t Stopwatch::lap_us()
+{
+    const auto now = std::chrono::steady_clock::now();
+    const auto us = std::chrono::duration_cast<std::chrono::microseconds>(now - _last).count();
+    _last = now;
+    return static_cast<std::uint32_t>(us);
+}
+
 int default_palette_bits(OutputFormat format)
 {
     switch (format) {
@@ -636,8 +649,10 @@ StatusCode decode_to_indexed(const std::uint8_t* data,
                              std::size_t len,
                              std::uint32_t maxPixels,
                              const Options& o,
-                             IndexedImage& out)
+                             IndexedImage& out,
+                             PipelineReport& report)
 {
+    report = PipelineReport{};
     if (data == nullptr || len == 0) {
         return StatusCode::InvalidRequest;
     }
@@ -652,11 +667,14 @@ StatusCode decode_to_indexed(const std::uint8_t* data,
     if (!stbi_info_from_memory(data, dataLen, &srcW, &srcH, &comp)) {
         return StatusCode::InvalidRequest;
     }
+    report.source = {srcW, srcH};
     if (static_cast<std::uint64_t>(srcW) * static_cast<std::uint64_t>(srcH) > maxPixels) {
         return StatusCode::Unsupported;
     }
 
+    Stopwatch stage;
     std::uint8_t* decoded = stbi_load_from_memory(data, dataLen, &srcW, &srcH, &comp, 3);
+    report.timings.decodeUs = stage.lap_us();
     // The header parsed and the size is within the cap, so a null here is an
     // allocation failure (or a stream corrupt late in the data): report it as
     // too large.
@@ -669,11 +687,14 @@ StatusCode decode_to_indexed(const std::uint8_t* data,
         std::vector<std::uint8_t> rgb = scale_rgb(decoded, srcW, srcH, size);
         stbi_image_free(decoded);
         decoded = nullptr;
+        report.timings.scaleUs = stage.lap_us();
 
         IndexedImage image;
         image.size = size;
         image.palette = make_palette(rgb, o);
+        report.timings.paletteUs = stage.lap_us();
         image.pixels = map_pixels(rgb, size, image.palette, o);
+        report.timings.mapUs = stage.lap_us();
         out = std::move(image);
     } catch (const std::bad_alloc&) {
         // C++ exceptions are enabled in the ESP32 build (sdkconfig.defaults).
