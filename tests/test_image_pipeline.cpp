@@ -1,14 +1,15 @@
 // tests/test_image_pipeline.cpp
 #include "doctest.h"
 
-#include "fujinet/io/devices/image_pipeline.h"
+#include "fujinet/image/image_pipeline.h"
+#include "fujinet/image/output_format.h"
 
 #include <cstdint>
 #include <cstdlib>
 #include <string>
 #include <vector>
 
-using namespace fujinet::io::image;
+using namespace fujinet::image;
 
 TEST_CASE("ImagePipeline: selector defaults and full parse")
 {
@@ -102,9 +103,11 @@ TEST_CASE("ImagePipeline: fmt accepts ilbm and rejects everything else")
 {
     Options o;
     REQUIRE(parse_selector("", o));
-    CHECK(o.format == OutputFormat::Ilbm);
+    REQUIRE(o.format != nullptr);
+    CHECK(o.format->name == "ilbm");
+    CHECK(o.format == &default_output_format());
     CHECK(parse_selector("fmt=ilbm", o));
-    CHECK(o.format == OutputFormat::Ilbm);
+    CHECK(o.format == find_output_format("ilbm"));
     CHECK(parse_selector("w=320,fmt=ilbm,colors=8", o));
 
     CHECK_FALSE(parse_selector("fmt=", o));
@@ -119,7 +122,7 @@ TEST_CASE("ImagePipeline: bits defaults to 4 for ilbm and accepts 1..8")
     Options o;
     REQUIRE(parse_selector("", o));
     CHECK(o.bits == 4);
-    CHECK(default_palette_bits(OutputFormat::Ilbm) == 4);
+    CHECK(find_output_format("ilbm")->defaultBits == 4);
     for (int bits = 1; bits <= 8; ++bits) {
         CAPTURE(bits);
         REQUIRE(parse_selector("bits=" + std::to_string(bits), o));
@@ -131,6 +134,22 @@ TEST_CASE("ImagePipeline: bits defaults to 4 for ilbm and accepts 1..8")
     CHECK_FALSE(parse_selector("bits=", o));
     CHECK_FALSE(parse_selector("bits=x", o));
     CHECK_FALSE(parse_selector("bits=4,bits=4", o));
+}
+
+TEST_CASE("ImagePipeline: the output format sets the pen limit, wherever fmt comes")
+{
+    const OutputFormat* ilbm = find_output_format("ilbm");
+    REQUIRE(ilbm != nullptr);
+    CHECK(ilbm->maxPens == 32);
+    CHECK(ilbm->allowsBase);
+    CHECK(find_output_format("png") == nullptr);
+
+    Options o;
+    CHECK(parse_selector("colors=32", o));
+    CHECK_FALSE(parse_selector("colors=33", o));            // a byte holds 256, ILBM 32
+    CHECK(parse_selector("colors=8,base=24,fmt=ilbm", o));
+    CHECK_FALSE(parse_selector("colors=8,base=25,fmt=ilbm", o));   // checked after fmt
+    CHECK_FALSE(parse_selector("colors=257", o));
 }
 
 TEST_CASE("ImagePipeline: snap_channel spaces 2^bits levels evenly")

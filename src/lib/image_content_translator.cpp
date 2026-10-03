@@ -1,7 +1,7 @@
 #include "fujinet/io/devices/image_content_translator.h"
 
 #include "fujinet/core/logging.h"
-#include "fujinet/io/devices/image_writer_ilbm.h"
+#include "fujinet/image/output_format.h"
 
 #include <algorithm>
 #include <cstring>
@@ -11,28 +11,8 @@ namespace fujinet::io {
 
 namespace {
 
-// The one place a writer is chosen. parse_selector() only accepts formats
-// listed here.
-std::vector<std::uint8_t> write_output(const image::IndexedImage& indexed, const image::Options& options)
-{
-    switch (options.format) {
-        case image::OutputFormat::Ilbm:
-            return image::write_ilbm(indexed, options);
-    }
-    return {};
-}
-
 // The log macros compile away in release builds, taking every use of these.
 [[maybe_unused]] const char* const TAG = "image";
-
-[[maybe_unused]] const char* format_name(image::OutputFormat format)
-{
-    switch (format) {
-        case image::OutputFormat::Ilbm:
-            return "ilbm";
-    }
-    return "?";
-}
 
 [[maybe_unused]] unsigned whole_ms(std::uint32_t us)
 {
@@ -54,11 +34,11 @@ void ImageContentTranslator::log_timings([[maybe_unused]] const image::PipelineR
 {
     [[maybe_unused]] const image::PipelineTimings& t = report.timings;
     FN_LOGI(TAG,
-            "%dx%d -> %dx%d %s bits=%d colors=%d: decode %u.%03u ms, scale %u.%03u ms, "
+            "%dx%d -> %dx%d %.*s bits=%d colors=%d: decode %u.%03u ms, scale %u.%03u ms, "
             "palette %u.%03u ms, quantise/dither %u.%03u ms, write %u.%03u ms, total %u.%03u ms, %u bytes",
             report.source.w, report.source.h,
             output.w, output.h,
-            format_name(_options.format), _options.bits, _options.colors,
+            static_cast<int>(_options.format->name.size()), _options.format->name.data(), _options.bits, _options.colors,
             whole_ms(t.decodeUs), frac_ms(t.decodeUs),
             whole_ms(t.scaleUs), frac_ms(t.scaleUs),
             whole_ms(t.paletteUs), frac_ms(t.paletteUs),
@@ -123,6 +103,9 @@ StatusCode ImageContentTranslator::translate(const std::uint8_t* data, std::size
 StatusCode ImageContentTranslator::convert(const std::uint8_t* data, std::size_t len)
 {
     std::vector<std::uint8_t>().swap(_out);
+    if (_options.format == nullptr) {
+        return StatusCode::InvalidRequest;      // not configured
+    }
 
     image::Stopwatch total;
     image::IndexedImage indexed;
@@ -139,7 +122,7 @@ StatusCode ImageContentTranslator::convert(const std::uint8_t* data, std::size_t
 
     image::Stopwatch write;
     try {
-        _out = write_output(indexed, _options);
+        _out = _options.format->write(indexed, _options);
     } catch (const std::bad_alloc&) {
         std::vector<std::uint8_t>().swap(_out);
         return StatusCode::Unsupported;

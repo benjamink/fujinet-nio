@@ -52,9 +52,11 @@ idf_component_register(
         lib/host_service.cpp
         lib/host_service_init.cpp
         lib/host_state.cpp
+        lib/image/ilbm_writer.cpp
+        lib/image/image_pipeline.cpp
+        lib/image/output_format.cpp
+        lib/image/stb_image_impl.cpp
         lib/image_content_translator.cpp
-        lib/image_pipeline.cpp
-        lib/image_writer_ilbm.cpp
         lib/io_device_manager.cpp
         lib/io_service.cpp
         lib/json_content_translator.cpp
@@ -83,7 +85,6 @@ idf_component_register(
         lib/slip_framer.cpp
         lib/slot_catalog.cpp
         lib/slot_catalog_service.cpp
-        lib/stb_image_impl.cpp
         lib/storage_manager.cpp
         lib/tcp_channel.cpp
         lib/tcp_network_protocol_common.cpp

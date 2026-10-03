@@ -1,13 +1,14 @@
 // tests/test_image_writer_ilbm.cpp
 #include "doctest.h"
 
-#include "fujinet/io/devices/image_writer_ilbm.h"
+#include "fujinet/image/ilbm_writer.h"
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
-using namespace fujinet::io::image;
+using namespace fujinet::image;
+using namespace fujinet::image::ilbm;
 
 namespace {
 
@@ -51,7 +52,7 @@ TEST_CASE("ImageWriterIlbm: header, CMAP base offset and pens")
     Options o;
     REQUIRE(parse_selector("w=16,h=16,colors=2,base=4", o));
 
-    const auto f = write_ilbm(image, o);
+    const auto f = ilbm::write(image, o);
     CHECK(std::string(f.begin(), f.begin() + 4) == "FORM");
     CHECK(std::string(f.begin() + 8, f.begin() + 12) == "ILBM");
     CHECK(std::string(f.begin() + 12, f.begin() + 16) == "BMHD");

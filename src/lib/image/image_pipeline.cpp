@@ -1,5 +1,7 @@
-// src/lib/image_pipeline.cpp
-#include "fujinet/io/devices/image_pipeline.h"
+// src/lib/image/image_pipeline.cpp
+#include "fujinet/image/image_pipeline.h"
+
+#include "fujinet/image/output_format.h"
 
 #include "stb_image.h"
 
@@ -9,15 +11,13 @@
 #include <cstdlib>
 #include <new>
 
-namespace fujinet::io::image {
+namespace fujinet::image {
 
 namespace {
 
 // ---------------------------------------------------------------------------
 // Selector
 // ---------------------------------------------------------------------------
-
-constexpr int kMaxPens = 32;
 
 enum SelectorKey : int {
     KeyWidth,
@@ -121,14 +121,10 @@ bool parse_upscale(const std::string& text, Options& o)
     return false;
 }
 
-// Output formats a writer exists for. Adding a writer adds a name here.
 bool parse_format(const std::string& text, Options& o)
 {
-    if (text == "ilbm") {
-        o.format = OutputFormat::Ilbm;
-        return true;
-    }
-    return false;
+    o.format = find_output_format(text);
+    return o.format != nullptr;
 }
 
 bool apply_selector_value(int key, const std::string& value, Options& o)
@@ -139,9 +135,9 @@ bool apply_selector_value(int key, const std::string& value, Options& o)
         case KeyHeight:
             return parse_int(value, 16, 1024, o.h);
         case KeyColors:
-            return parse_int(value, 2, kMaxPens, o.colors);
+            return parse_int(value, 2, kMaxColors, o.colors);
         case KeyBase:
-            return parse_int(value, 0, kMaxPens - 2, o.base);
+            return parse_int(value, 0, kMaxColors - 2, o.base);
         case KeyPar:
             return parse_par(value, o);
         case KeyDither:
@@ -533,11 +529,18 @@ bool parse_selector(const std::string& selector, Options& out)
         }
     }
 
-    if (o.base + o.colors > kMaxPens) {
+    // The format's limits apply once every key is read: `fmt` may come last.
+    if (o.format == nullptr) {
+        o.format = &default_output_format();
+    }
+    if (o.base + o.colors > o.format->maxPens) {
+        return false;
+    }
+    if (o.base != 0 && !o.format->allowsBase) {
         return false;
     }
     if ((seen & (1u << KeyBits)) == 0) {
-        o.bits = default_palette_bits(o.format);
+        o.bits = o.format->defaultBits;
     }
     out = o;
     return true;
@@ -697,4 +700,4 @@ StatusCode decode_to_indexed(const std::uint8_t* data,
     return StatusCode::Ok;
 }
 
-} // namespace fujinet::io::image
+} // namespace fujinet::image

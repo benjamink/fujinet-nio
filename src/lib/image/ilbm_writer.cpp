@@ -1,9 +1,9 @@
-// src/lib/image_writer_ilbm.cpp
-#include "fujinet/io/devices/image_writer_ilbm.h"
+// src/lib/image/ilbm_writer.cpp
+#include "fujinet/image/ilbm_writer.h"
 
 #include <algorithm>
 
-namespace fujinet::io::image {
+namespace fujinet::image::ilbm {
 
 namespace {
 
@@ -172,7 +172,7 @@ std::vector<std::uint8_t> byterun1(const std::uint8_t* row, std::size_t n)
     return out;
 }
 
-std::vector<std::uint8_t> write_ilbm(const IndexedImage& image, const Options& o)
+std::vector<std::uint8_t> write(const IndexedImage& image, const Options& o)
 {
     const int planes = planes_for(o);
     std::vector<std::uint8_t> out;
@@ -186,4 +186,4 @@ std::vector<std::uint8_t> write_ilbm(const IndexedImage& image, const Options& o
     return out;
 }
 
-} // namespace fujinet::io::image
+} // namespace fujinet::image::ilbm

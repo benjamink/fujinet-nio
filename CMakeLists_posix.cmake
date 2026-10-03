@@ -158,9 +158,11 @@ set(FUJINET_NIO_SOURCES
         src/lib/host_service.cpp
         src/lib/host_service_init.cpp
         src/lib/host_state.cpp
+        src/lib/image/ilbm_writer.cpp
+        src/lib/image/image_pipeline.cpp
+        src/lib/image/output_format.cpp
+        src/lib/image/stb_image_impl.cpp
         src/lib/image_content_translator.cpp
-        src/lib/image_pipeline.cpp
-        src/lib/image_writer_ilbm.cpp
         src/lib/io_device_manager.cpp
         src/lib/io_service.cpp
         src/lib/json_content_translator.cpp
@@ -189,7 +191,6 @@ set(FUJINET_NIO_SOURCES
         src/lib/slip_framer.cpp
         src/lib/slot_catalog.cpp
         src/lib/slot_catalog_service.cpp
-        src/lib/stb_image_impl.cpp
         src/lib/storage_manager.cpp
         src/lib/tcp_channel.cpp
         src/lib/tcp_network_protocol_common.cpp

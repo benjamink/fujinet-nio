@@ -1,7 +1,7 @@
 #pragma once
 
 #include "fujinet/io/devices/content_translator.h"
-#include "fujinet/io/devices/image_pipeline.h"
+#include "fujinet/image/image_pipeline.h"
 
 #include <cstddef>
 #include <cstdint>

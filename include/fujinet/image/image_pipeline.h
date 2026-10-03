@@ -1,4 +1,4 @@
-// include/fujinet/io/devices/image_pipeline.h
+// include/fujinet/image/image_pipeline.h
 #pragma once
 
 #include "fujinet/io/core/io_message.h"
@@ -10,24 +10,13 @@
 #include <vector>
 
 // Format-neutral half of the Image translator: selector, decode, scale,
-// palette, quantise and dither. It produces an IndexedImage; a writer (see
-// image_writer_ilbm.h) turns that into the bytes a client reads.
-namespace fujinet::io::image {
+// palette, quantise and dither. It produces an IndexedImage; an output format
+// (see output_format.h) turns that into the bytes a client reads.
+namespace fujinet::image {
 
-enum class OutputFormat : std::uint8_t {
-    Ilbm,
-};
+using io::StatusCode;
 
-// Palette depth (bits per RGB channel) used when the selector has no `bits`
-// key. The one place each format's default lives.
-constexpr int default_palette_bits(OutputFormat format)
-{
-    switch (format) {
-        case OutputFormat::Ilbm:
-            return 4;       // Amiga OCS: 12-bit colour
-    }
-    return 4;
-}
+struct OutputFormat;
 
 enum class ColourMode : std::uint8_t {
     Auto,
@@ -35,18 +24,22 @@ enum class ColourMode : std::uint8_t {
     Color,
 };
 
+// Most colours an IndexedImage can hold (one byte per pixel). Each output
+// format sets its own, lower, limit.
+constexpr int kMaxColors = 256;
+
 struct Options {
     int w = 640;
     int h = 400;
     int colors = 16;
-    int base = 0;
+    int base = 0;           // first pen; only for formats that allow it
     int parX = 1;
     int parY = 1;
-    int bits = default_palette_bits(OutputFormat::Ilbm);   // bits per RGB channel
+    int bits = 8;           // bits per RGB channel; parse_selector() applies the format's default
     bool dither = true;
     ColourMode mode = ColourMode::Auto;
     bool upscale = false;
-    OutputFormat format = OutputFormat::Ilbm;
+    const OutputFormat* format = nullptr;   // parse_selector() always sets it
 };
 
 struct Rgb {
@@ -97,7 +90,8 @@ private:
 constexpr int kMaxPaletteBits = 8;
 
 // Parse the translator selector (`key=value,...`). Returns false for an
-// unknown or repeated key, a value out of range, or an unknown `fmt`.
+// unknown or repeated key, a value out of range, an unknown `fmt`, or values
+// the chosen format cannot hold (too many pens, or `base` where it has none).
 bool parse_selector(const std::string& selector, Options& out);
 
 // Snap an 8-bit channel value to the nearest of 2^bits evenly spaced levels
@@ -122,4 +116,4 @@ StatusCode decode_to_indexed(const std::uint8_t* data,
                              IndexedImage& out,
                              PipelineReport& report);
 
-} // namespace fujinet::io::image
+} // namespace fujinet::image

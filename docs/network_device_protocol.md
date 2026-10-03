@@ -289,17 +289,19 @@ optional and may appear at most once. An unknown key or value is an error:
 | `fmt` | `ilbm` | `ilbm` | output format (the writer) |
 | `w` | 16..1024 | 640 | max output width in pixels |
 | `h` | 16..1024 | 400 | max output height in pixels |
-| `colors` | 2..32 (ilbm) | 16 | number of image colours |
-| `base` | 0..30 (ilbm) | 0 | first pen index; `base+colors <= 32` |
+| `colors` | 2..the format's pens (32 for `ilbm`) | 16 | number of image colours |
+| `base` | 0 and up, if the format has pens (`ilbm` does) | 0 | first pen index; `base+colors` must fit the format's pens |
 | `bits` | 1..8 | the format's; 4 for `ilbm` | bits per RGB channel in the palette: each channel is snapped to 2^bits evenly spaced levels, 0 and 255 included. `8` is full 24-bit colour |
 | `par` | `X:Y`, 1..4 each | `1:1` | display pixel aspect (width:height); hires non-laced is `1:2` |
 | `dither` | `fs` \| `none` | `fs` | Floyd-Steinberg error diffusion or nearest colour |
 | `mode` | `auto` \| `gray` \| `color` | `auto` | `auto` = gray if every pixel has max(r,g,b)-min(r,g,b) <= 24 |
 | `up` | `0` \| `1` | `0` | allow enlarging images smaller than the box |
 
-`colors` and `base` describe pens of an indexed display; the ranges marked
-"(ilbm)" are the Amiga ones, which the parser applies today. A future
-format may document its own ranges for them.
+`colors` and `base` describe pens of an indexed display. Each format sets
+how many pens it holds (`ilbm`: 32, five bitplanes), its default `bits`, and
+whether `base` applies; the selector is checked against them once every key
+is read, so `fmt` may appear anywhere. The format table is
+`src/lib/image/output_format.cpp`.
 
 Palette:
 - Gray: `colors` evenly spaced levels from black to white, each snapped to
