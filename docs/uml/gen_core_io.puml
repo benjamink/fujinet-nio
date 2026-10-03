@@ -461,6 +461,7 @@ class C_0016024516082849980408 {
 +config_mut() : config::FujiConfig &
 +config_store() : config::FujiConfigStore *
 +handle(const IORequest & request) : IOResponse
+-handle_get_info(const IORequest & request) : IOResponse
 -handle_reset(const IORequest & request) : IOResponse
 -handle_unknown(const IORequest & request) : IOResponse
 -load_config() : void

@@ -142,6 +142,7 @@ Control
 }
 enum "io::protocol::FujiCommand" as C_0004628219160953719395
 enum C_0004628219160953719395 {
+GetInfo
 Reset
 GetSsid
 }

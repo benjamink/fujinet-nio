@@ -704,6 +704,7 @@ class C_0016024516082849980408 {
 +config_mut() : config::FujiConfig &
 +config_store() : config::FujiConfigStore *
 +handle(const IORequest & request) : IOResponse
+-handle_get_info(const IORequest & request) : IOResponse
 -handle_reset(const IORequest & request) : IOResponse
 -handle_unknown(const IORequest & request) : IOResponse
 -load_config() : void
@@ -1527,7 +1528,7 @@ abstract C_0001548601329560013188 {
 +dns_server() const : std::string
 +gateway() const : std::string
 {abstract} +ip_address() const = 0 : std::string
-+mac_address() const : WifiBssid
++mac_address() const : MacAddress
 {abstract} +poll() = 0 : void
 +rssi() const : std::int8_t
 +scan_wifi() : WifiScanResult
@@ -1544,8 +1545,8 @@ Connecting
 Connected
 Failed
 }
-class "net::WifiBssid" as C_0010145170192686328925
-class C_0010145170192686328925 {
+class "net::MacAddress" as C_0016661916565921457449
+class C_0016661916565921457449 {
 __
 +bytes : std::uint8_t[6]
 +valid : bool
@@ -2046,10 +2047,10 @@ C_0010820187132968979160 ..> C_0009904927253814442249
 C_0010820187132968979160 o-- C_0002040917693353561204 : -_network
 C_0010820187132968979160 o-- C_0006289034866210007341 : -_time
 C_0001548601329560013188 ..> C_0014292031979356073071
-C_0001548601329560013188 ..> C_0010145170192686328925
+C_0001548601329560013188 ..> C_0016661916565921457449
 C_0001548601329560013188 ..> C_0018317739752130872933
 C_0001548601329560013188 ..> C_0017008327188014981563
-C_0004628671242044821433 o-- C_0010145170192686328925 : +bssid
+C_0004628671242044821433 o-- C_0016661916565921457449 : +bssid
 C_0017008327188014981563 o-- C_0004628671242044821433 : +records
 C_0011340228097429469319 o-- C_0014656238790804323890 : +kind
 C_0011340228097429469319 o-- C_0003572434641464952782 : +gotIp
