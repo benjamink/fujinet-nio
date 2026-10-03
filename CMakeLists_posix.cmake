@@ -158,6 +158,7 @@ set(FUJINET_NIO_SOURCES
         src/lib/host_service.cpp
         src/lib/host_service_init.cpp
         src/lib/host_state.cpp
+        src/lib/image_content_translator.cpp
         src/lib/image_convert.cpp
         src/lib/io_device_manager.cpp
         src/lib/io_service.cpp
@@ -287,6 +288,7 @@ target_sources(fujinet-nio
         ${FUJINET_NIO_SOURCES}
         third_party/cjson/cJSON.c
         third_party/cjson/cJSON_Utils.c
+        src/lib/stb_image_impl.cpp
 )
 
 
@@ -295,6 +297,7 @@ target_include_directories(fujinet-nio
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cjson
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb
 )
 
 target_compile_features(fujinet-nio PUBLIC cxx_std_20)

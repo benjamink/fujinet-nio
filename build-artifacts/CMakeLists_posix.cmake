@@ -140,6 +140,7 @@ target_sources(fujinet-nio
         ${FUJINET_NIO_SOURCES}
         third_party/cjson/cJSON.c
         third_party/cjson/cJSON_Utils.c
+        src/lib/stb_image_impl.cpp
 )
 
 
@@ -148,6 +149,7 @@ target_include_directories(fujinet-nio
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cjson
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb
 )
 
 target_compile_features(fujinet-nio PUBLIC cxx_std_20)

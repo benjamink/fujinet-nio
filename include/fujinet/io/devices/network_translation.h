@@ -10,6 +10,7 @@ enum class ContentTranslationType : std::uint8_t {
     Json = 1,
     Xml = 2,
     Rss = 3,
+    Image = 4,
 };
 
 constexpr std::uint32_t NETWORK_OPEN_EXT_TRANSLATION = 1u << 0;
@@ -32,6 +33,7 @@ struct TranslationConfig {
         case ContentTranslationType::Json:
         case ContentTranslationType::Xml:
         case ContentTranslationType::Rss:
+        case ContentTranslationType::Image:
             return true;
     }
 

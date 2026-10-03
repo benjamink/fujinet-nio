@@ -1,6 +1,9 @@
 // tests/test_image_convert.cpp
 #include "doctest.h"
 #include "fujinet/io/devices/image_convert.h"
+#include "fujinet/io/devices/image_content_translator.h"
+#include "fujinet/io/devices/network_translation.h"
+#include <string>
 using namespace fujinet::io::image;
 
 TEST_CASE("ImageConvert: selector defaults and full parse") {
@@ -66,4 +69,45 @@ TEST_CASE("ImageConvert: ILBM header, CMAP base offset and indices") {
     CHECK(f[30] == 1);                       // compression = ByteRun1
     std::uint32_t formLen = (f[4]<<24)|(f[5]<<16)|(f[6]<<8)|f[7];
     CHECK(formLen + 8 == f.size());
+}
+
+// 2x1 RGB PNG (black, white), regenerated with the Python snippet from the task brief.
+static const std::uint8_t kPng2x1[] = {
+  0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A,0x00,0x00,0x00,0x0D,0x49,0x48,0x44,0x52,
+  0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x01,0x08,0x02,0x00,0x00,0x00,0x7B,0x40,0xE8,
+  0xDD,0x00,0x00,0x00,0x0F,0x49,0x44,0x41,0x54,0x78,0x9C,0x63,0x60,0x60,0x60,0xF8,
+  0xFF,0xFF,0x3F,0x00,0x06,0x01,0x02,0xFE,0x02,0xB2,0x39,0xAE,0x00,0x00,0x00,0x00,
+  0x49,0x45,0x4E,0x44,0xAE,0x42,0x60,0x82 };
+
+static fujinet::io::TranslationConfig img_cfg(const char* sel) {
+    fujinet::io::TranslationConfig c; c.type = fujinet::io::ContentTranslationType::Image; c.selector = sel; return c;
+}
+
+TEST_CASE("ImageTranslator converts PNG to ILBM") {
+    fujinet::io::ImageContentTranslator t;
+    REQUIRE(t.configure(img_cfg("colors=2,mode=gray,dither=none")) == fujinet::io::StatusCode::Ok);
+    REQUIRE(t.append_body(kPng2x1, sizeof kPng2x1) == fujinet::io::StatusCode::Ok);
+    REQUIRE(t.finalize() == fujinet::io::StatusCode::Ok);
+    std::uint8_t buf[256]; std::uint16_t n = 0; bool eof = false;
+    REQUIRE(t.read(0, buf, sizeof buf, n, eof) == fujinet::io::StatusCode::Ok);
+    CHECK(eof); CHECK(n == t.translated_size());
+    CHECK(std::string((char*)buf, 4) == "FORM");
+    CHECK(buf[20] == 0); CHECK(buf[21] == 2);   // BMHD width = 2
+}
+
+TEST_CASE("ImageTranslator rejects bad selector and garbage body") {
+    fujinet::io::ImageContentTranslator t;
+    CHECK(t.configure(img_cfg("colors=99")) == fujinet::io::StatusCode::InvalidRequest);
+    REQUIRE(t.configure(img_cfg("")) == fujinet::io::StatusCode::Ok);
+    const std::uint8_t junk[] = {1,2,3,4};
+    t.append_body(junk, sizeof junk);
+    CHECK(t.finalize() == fujinet::io::StatusCode::InvalidRequest);
+}
+
+TEST_CASE("ImageTranslator rejects images above pixel cap") {
+    fujinet::io::ImageContentTranslator t;
+    t.set_max_pixels_for_test(1);                 // 2x1 PNG = 2 pixels > 1
+    REQUIRE(t.configure(img_cfg("")) == fujinet::io::StatusCode::Ok);
+    t.append_body(kPng2x1, sizeof kPng2x1);
+    CHECK(t.finalize() == fujinet::io::StatusCode::Unsupported);
 }

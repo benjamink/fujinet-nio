@@ -39,8 +39,12 @@ bool parse_selector(const std::string& sel, Options& out) {
                       ok = c != std::string::npos && to_int(v.substr(0, c), 1, 4, o.parX)
                            && to_int(v.substr(c + 1), 1, 4, o.parY); } break;
             case 5: if (v == "fs") o.dither = true; else if (v == "none") o.dither = false; else ok = false; break;
-            case 6: if (v == "auto") o.mode = Options::Auto; else if (v == "gray") o.mode = Options::Gray;
-                    else if (v == "color") o.mode = Options::Color; else ok = false; break;
+            case 6:
+                if (v == "auto") o.mode = Options::Auto;
+                else if (v == "gray") o.mode = Options::Gray;
+                else if (v == "color") o.mode = Options::Color;
+                else ok = false;
+                break;
             case 7: if (v == "0") o.upscale = false; else if (v == "1") o.upscale = true; else ok = false; break;
         }
         if (!ok) return false;

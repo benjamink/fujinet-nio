@@ -3,6 +3,7 @@
 #include "fujinet/core/logging.h"
 #include "fujinet/io/core/io_message.h"
 #include "fujinet/io/devices/json_content_translator.h"
+#include "fujinet/io/devices/image_content_translator.h"
 #include "fujinet/io/devices/network_content_profile.h"
 
 #include "fujinet/io/devices/net_codec.h"
@@ -240,6 +241,8 @@ std::unique_ptr<IContentTranslator> NetworkDevice::make_translator(ContentTransl
             return nullptr;
         case ContentTranslationType::Json:
             return std::make_unique<JsonContentTranslator>();
+        case ContentTranslationType::Image:
+            return std::make_unique<ImageContentTranslator>();
         case ContentTranslationType::Xml:
         case ContentTranslationType::Rss:
             return nullptr;

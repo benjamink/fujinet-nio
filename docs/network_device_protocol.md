@@ -265,8 +265,34 @@ Defined types:
 - `1` = `Json`
 - `2` = `Xml` (reserved, currently unsupported)
 - `3` = `Rss` (reserved, currently unsupported)
+- `4` = `Image` (PNG/JPEG/GIF in, ByteRun1 IFF ILBM out)
 
 For `Json`, `selector` is a JSON Pointer (RFC 6901), for example `/url`.
+
+For `Image`, the selector is ASCII `key=value` pairs separated by `,`. Every key is optional and may appear at most once. Unknown keys are an error (`InvalidRequest`).
+
+| key | values | default | meaning |
+|---|---|---|---|
+| `w` | 16..1024 | 640 | max output width in pixels |
+| `h` | 16..1024 | 400 | max output height in pixels |
+| `colors` | 2..32 | 16 | number of image colours |
+| `base` | 0..30 | 0 | first pen index; `base+colors <= 32` |
+| `par` | `X:Y`, 1..4 each | `1:1` | display pixel aspect (width:height); hires non-laced is `1:2` |
+| `dither` | `fs` \| `none` | `fs` | Floyd-Steinberg error diffusion or nearest colour |
+| `mode` | `auto` \| `gray` \| `color` | `auto` | `auto` = gray if every pixel has max(r,g,b)-min(r,g,b) <= 24 |
+| `up` | `0` \| `1` | `0` | allow enlarging images smaller than the box |
+
+Image output format:
+- A standard `FORM ILBM` containing BMHD, CMAP and BODY.
+- BMHD values:
+  - `w`/`h` are the output dimensions, `x=y=0`.
+  - `nPlanes` is the bit count needed for `base+colors` pens, `masking=0`, `compression=1` (ByteRun1), `transparentColor=0`.
+  - `xAspect`/`yAspect` come from `par`, `pageWidth=w`, `pageHeight=h`.
+- CMAP has `3 << nPlanes` bytes. Entries below `base` and at or above `base+colors` are written as 0.
+- BODY rows are `((w+15)/16)*2` bytes per plane. Each row and each plane is ByteRun1-compressed separately, in plane order 0..n-1.
+- Chunks with an odd length get a pad byte, and the FORM length is correct.
+
+Image errors: an undecodable body returns `InvalidRequest`; an image larger than the pixel cap (4096x4096 on POSIX, 1200x1200 on ESP32) returns `Unsupported`.
 
 When translation is active:
 1. The device buffers the full HTTP response body.
@@ -278,7 +304,7 @@ If `translationType == None`, the device behaves as before and exposes the raw r
 
 When translation is active but the full body is not yet available, `Read` and `Info` return `NotReady`.
 
-Only JSON translation is implemented in this phase. Unsupported translation types must return `Unsupported`.
+JSON and Image translation are implemented. Unsupported translation types must return `Unsupported`.
 
 Serialization format (intended to be simple for 8-bit hosts):
 - **String**: raw text content (no surrounding quotes)
