@@ -289,13 +289,17 @@ optional and may appear at most once. An unknown key or value is an error:
 | `fmt` | `ilbm` | `ilbm` | output format (the writer) |
 | `w` | 16..1024 | 640 | max output width in pixels |
 | `h` | 16..1024 | 400 | max output height in pixels |
-| `colors` | 2..32 | 16 | number of image colours |
-| `base` | 0..30 | 0 | first pen index; `base+colors <= 32` |
+| `colors` | 2..32 (ilbm) | 16 | number of image colours |
+| `base` | 0..30 (ilbm) | 0 | first pen index; `base+colors <= 32` |
 | `bits` | 1..8 | the format's; 4 for `ilbm` | bits per RGB channel in the palette: each channel is snapped to 2^bits evenly spaced levels, 0 and 255 included. `8` is full 24-bit colour |
 | `par` | `X:Y`, 1..4 each | `1:1` | display pixel aspect (width:height); hires non-laced is `1:2` |
 | `dither` | `fs` \| `none` | `fs` | Floyd-Steinberg error diffusion or nearest colour |
 | `mode` | `auto` \| `gray` \| `color` | `auto` | `auto` = gray if every pixel has max(r,g,b)-min(r,g,b) <= 24 |
 | `up` | `0` \| `1` | `0` | allow enlarging images smaller than the box |
+
+`colors` and `base` describe pens of an indexed display; the ranges marked
+"(ilbm)" are the Amiga ones, which the parser applies today. A future
+format may document its own ranges for them.
 
 Palette:
 - Gray: `colors` evenly spaced levels from black to white, each snapped to
@@ -834,7 +838,7 @@ u32  translatedSize    // size of the translated result
 - If the raw response body has already been cached, the device re-runs translation without refetching.
 - Subsequent `Read` calls return translated bytes for the active selector.
 - In the current implementation, `Json` and `Image` are supported, `Xml`/`Rss` return `Unsupported`, and an unknown type returns `InvalidRequest`.
-- The translator reads the cached body in place; for `Image` no second copy of the body is made.
+- The `Image` translator reads the cached body in place, so no second copy of the body is made. `Json` still copies it in (the default `translate()`).
 
 ---
 
