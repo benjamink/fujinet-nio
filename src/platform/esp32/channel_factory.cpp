@@ -85,6 +85,10 @@ create_channel_for_profile(const build::BuildProfile& profile, const config::Fuj
     case ChannelKind::SerialPort:
         FN_LOGE(TAG, "SerialPort channel kind is POSIX-only; use UartGpio on ESP32");
         return nullptr;
+
+    case ChannelKind::VisorUsbHost:
+        FN_LOGE(TAG, "VisorUsbHost channel kind is POSIX-only");
+        return nullptr;
     }
 
     FN_LOGE(TAG, "Unknown ChannelKind in create_channel_for_profile");
