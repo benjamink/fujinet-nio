@@ -17,3 +17,13 @@ target_include_directories(pico-flash-tests PRIVATE .. ../../include ${LITTLEFS}
 target_compile_definitions(pico-flash-tests PRIVATE LFS_NO_DEBUG LFS_NO_WARN LFS_NO_ERROR)
 target_compile_options(pico-flash-tests PRIVATE -Wall -Wextra)
 add_test(NAME pico-flash-tests COMMAND pico-flash-tests)
+
+add_executable(pico-usb-worker-tests test_usb_worker.cpp
+    ../../src/platform/pico/usb_service.cpp
+    ../../src/platform/pico/channel_factory.cpp)
+target_compile_features(pico-usb-worker-tests PRIVATE cxx_std_20)
+target_include_directories(pico-usb-worker-tests PRIVATE usb_fakes ../../include)
+target_compile_options(pico-usb-worker-tests PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+foreach(mode lifecycle flash-failure usb-failure timeout)
+    add_test(NAME pico-usb-worker-${mode} COMMAND pico-usb-worker-tests ${mode})
+endforeach()

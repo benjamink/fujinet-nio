@@ -67,7 +67,7 @@ file(GLOB NIO_PICO_PLATFORM_SOURCES CONFIGURE_DEPENDS ${NIO}/src/platform/pico/*
 list(APPEND NIO_PICO_PLATFORM_SOURCES
     ${NIO}/src/platform/posix/logging.cpp)
 
-# Single-core measurement of the real thing: no <mutex>/<thread> in newlib.
+# Core 0 owns NIO/network; the fixed core 1 worker owns USB.
 add_executable(fujinet_nio_pico2w
     ${NIO}/src/app/main_pico.cpp
     ${NIO}/src/app/console_engine.cpp
@@ -99,7 +99,8 @@ target_compile_definitions(fujinet_nio_pico2w PRIVATE
     FN_HTTPS_TEST_CA=$<BOOL:${FN_HTTPS_TEST_CA}>
     FN_HTTPS_TEST_CA_ADDITIVE=$<BOOL:${FN_HTTPS_TEST_CA_ADDITIVE}>
     PICO_STACK_SIZE=16384
-    PICO_FLASH_ASSUME_CORE1_SAFE=1 # core 1 is never launched
+    PICO_CORE1_STACK_SIZE=4096
+    PICO_MULTICORE_LOCKOUT_BEFORE_CORE1_STARTED=0
     FN_PLATFORM_PICO
     PICO_CYW43_ARCH_THREADSAFE_BACKGROUND=1
 )
@@ -124,6 +125,7 @@ target_link_libraries(fujinet_nio_pico2w PRIVATE
     pico_rand
     pico_mbedtls
     pico_flash
+    pico_multicore
     hardware_flash
     hardware_watchdog
     yaml-cpp

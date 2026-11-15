@@ -1,6 +1,6 @@
 #pragma once
 namespace fujinet::platform::pico {
-void init_usb();
-void service_usb();
+// Core 0 boot only. False forbids proceeding to flash initialization.
+bool start_usb_worker();
 void service_console();
 }

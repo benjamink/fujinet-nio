@@ -1,55 +1,39 @@
 #include "fujinet/platform/channel_factory.h"
-#include "fujinet/platform/pico/usb_service.h"
 #include "fujinet/build/profile.h"
 #include "fujinet/core/logging.h"
-#include "detail/usb_tx.h"
-#include "tusb.h"
-#include <algorithm>
+#include "detail/usb_worker.h"
 namespace fujinet::platform::pico {
 namespace {
-class UsbChannel;
-UsbChannel* channel = nullptr;
 class UsbChannel final : public io::Channel {
-    detail::UsbTx<16384> tx_;
+    bool attached_=false, has_read_=false;
+    std::uint32_t read_epoch_=0;
 public:
-    UsbChannel() { channel=this; }
-    ~UsbChannel() override { channel=nullptr; }
-    void connection_event(bool connected) {
-        tx_.connection(connected);
-        if(!connected) { tud_cdc_read_flush(); tud_cdc_write_clear(); }
+    bool attach() { return attached_=detail::usb_bridge().attach(); }
+    ~UsbChannel() override { if(attached_) detail::usb_bridge().detach(); }
+    bool available() override { return detail::usb_bridge().available(); }
+    std::size_t read(std::uint8_t* p,std::size_t n) override {
+        const auto count=detail::usb_bridge().read(p,n,&read_epoch_);
+        if(count) has_read_=true;
+        return count;
     }
-    void pump() {
-        connection_event(tud_cdc_connected());
-        if(!tx_.ready()) { tud_cdc_read_flush(); tud_cdc_write_clear(); return; }
-        std::uint8_t bytes[64];
-        // One bounded USB packet per loop iteration, preserves byte ordering.
-        const auto n=tx_.take(bytes,std::min<std::size_t>(sizeof(bytes),tud_cdc_write_available()));
-        if(n) tud_cdc_write(bytes,n); // FIFO space was checked; same-thread ownership.
-        tud_cdc_write_flush();
+    void write(const std::uint8_t* p,std::size_t n) override {
+        // A slow core-0 request may outlive a disconnect/reconnect on core 1.
+        // Only an actual read adopts the new session, never an epoch query.
+        if(has_read_) detail::usb_bridge().write_if_epoch(p,n,read_epoch_);
     }
-    bool available() override { return tx_.ready() && tud_cdc_available(); }
-    std::size_t read(std::uint8_t* p,std::size_t n) override { return tx_.ready() ? tud_cdc_read(p,n) : 0; }
-    void write(const std::uint8_t* p,std::size_t n) override { tx_.write(p,n); }
-    std::uint32_t connection_epoch() const override { return tx_.epoch(); }
+    std::uint32_t connection_epoch() const override { return detail::usb_bridge().epoch(); }
 };
 }
-void init_usb() { tusb_init(); }
-void service_usb() { tud_task(); if(channel) channel->pump(); }
-void usb_connection_event(bool connected) { if(channel) channel->connection_event(connected); }
 }
 namespace fujinet::platform {
 std::unique_ptr<io::Channel> create_channel_for_profile(const build::BuildProfile& profile,const config::FujiConfig&,disk::DiskService*) {
-    if(profile.primaryChannel == build::ChannelKind::UsbCdcDevice) return std::make_unique<pico::UsbChannel>();
+    if(profile.primaryChannel == build::ChannelKind::UsbCdcDevice) {
+        // Allocate before attaching: an allocation exception cannot leave a lease.
+        auto channel=std::make_unique<pico::UsbChannel>();
+        if(channel->attach()) return channel;
+        // A rejected second channel must not detach the active one.
+        return nullptr;
+    }
     FN_LOGE("platform","Unsupported Pico channel"); return nullptr;
 }
-}
-
-// TinyUSB dispatches these on the same cooperative task as Channel I/O. Record
-// every edge, even when an unmount/reconnect pair occurs in one tud_task call.
-// Bus reset does not invoke unmount in TinyUSB. SET_CONFIGURATION does invoke
-// mount: invalidate the prior session before any new CDC line-state notification.
-extern "C" void tud_mount_cb() { fujinet::platform::pico::usb_connection_event(false); }
-extern "C" void tud_umount_cb() { fujinet::platform::pico::usb_connection_event(false); }
-extern "C" void tud_cdc_line_state_cb(std::uint8_t instance,bool dtr,bool) {
-    if(instance==0) fujinet::platform::pico::usb_connection_event(dtr);
 }

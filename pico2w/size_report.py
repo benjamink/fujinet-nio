@@ -94,6 +94,10 @@ def report(map_path, elf_path, binary_path):
         "static_ram_bytes": static,
         "minimum_heap_reservation_bytes": heap,
         "stack_reservation_bytes": stack,
+        "stack_reservation_bytes_by_core": {
+            "core0": ram.get(".stack_dummy", 0),
+            "core1": ram.get(".stack1_dummy", 0),
+        },
         "runtime_tls_heap_peak_bytes": None,
         "runtime_stack_peak_bytes": None,
         "components_excluding_padding": components,
@@ -119,6 +123,7 @@ def main():
         return
     for key in ("flash_binary_bytes", "static_ram_bytes", "minimum_heap_reservation_bytes", "stack_reservation_bytes"):
         print(f"{key}: {result[key]}")
+    print("stack_reservation_bytes_by_core:", result["stack_reservation_bytes_by_core"])
     print("component,flash_input_bytes,static_ram_input_bytes")
     for name, values in result["components_excluding_padding"].items():
         print(f"{name},{values['flash_bytes']},{values['static_ram_bytes']}")

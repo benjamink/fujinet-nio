@@ -24,8 +24,8 @@ The default build type is `MinSizeRel` (`-Os`). The result is
 
 ## Size and acceptance
 
-The current build uses **1153056 bytes flash** and **328816 bytes static RAM**.
-Core 0 reserves a 16 KiB stack. This is a build measurement, not a runtime peak:
+The current build uses **1156328 bytes flash** and **349740 bytes static RAM**.
+Core 0 reserves a 16 KiB stack and core 1 reserves 4 KiB. This is a build measurement, not a runtime peak:
 core objects, protocol objects, TLS records/certificates and queues also allocate
 from the heap. A live TLS connection's peak heap and stack usage remains unknown.
 The board has 520 KiB SRAM and 4 MiB flash; the last MiB is reserved for LittleFS.
@@ -100,7 +100,7 @@ Verify Wi-Fi/DNS/TCP/UDP traffic, USB enumeration and full/disconnect recovery,
 UART diagnostics, flash persistence/power-loss recovery, and trusted/untrusted/
 wrong-hostname/expired TLS servers. Measure peak heap and stack with a TLS
 connection open. Optional UART transport, scan/BSSID selection, SNTP, low-water
-memory statistics and a core-1 task were not added.
+memory statistics were not added.
 
 ## Ordered port measurements (build verification only)
 
@@ -117,6 +117,8 @@ so use `arm-none-eabi-size -A` and the linker map instead.
 | 3: LittleFS | 1016616 | 164124 | 2048 / 2048 |
 | 4: TLS and HTTP/HTTPS | 1102836 | 173288 | 2048 / 16384 |
 | Final hardening (TLS window and lifecycle fixes) | 1153112 | 222312 | 2048 / 16384 |
+| TLS allocator pool prerequisite | 1153056 | 328816 | 2048 / 16384 |
+| Dual-core USB worker | 1156328 | 349740 | 2048 / 20480 |
 
 Map component totals (flash/static RAM input bytes; excludes linker alignment):
 
@@ -151,14 +153,18 @@ Static RAM remains a lower bound; it does not establish that a TLS connection fi
 
 One full-speed CDC ACM interface carries FujiBus only. `pico_stdio_usb` is disabled;
 stdio logs and console use UART0, GPIO0 TX/GPIO1 RX, 115200 baud, 3.3 V logic.
-TinyUSB is serviced before and after every core tick. Its RX/TX FIFOs are 4096 bytes;
-the channel queues at most 16384 additional TX bytes and submits at most 64 bytes
-per service call. Writes are atomic: overflow quarantines the stream and clears
-FIFOs until the host disconnects/reconnects. Connection epochs invalidate partial
-protocol state. UART console output queues 8192 bytes, truncates excess with an
+TinyUSB initialization, USB IRQs and polling belong exclusively to core 1. Its
+RX/TX FIFOs are 4096 bytes; the synchronized bridge adds 4096 RX bytes and at most
+16384 TX bytes (including partially submitted staging). Each worker iteration
+transfers at most 64 bytes per direction. Full RX leaves bytes in CDC for endpoint
+backpressure; short and zero TX acceptance retains unsent bytes. Writes are atomic: overflow quarantines the stream and clears
+FIFOs until the host disconnects/reconnects. Session transitions invalidate bridge RX/TX buffers and expose a connection
+epoch. Shared FujiBus framer state does not yet consume that epoch. UART console output queues 8192 bytes, truncates excess with an
 explicit marker, and drains only while UART is writable. Logs share UART output.
-Blocking DNS/TNFS operations can delay USB servicing by up to their bounded timeout;
-USB acceptance/latency measurements are pending hardware.
+Core 0 owns NIO, Wi-Fi/lwIP/TLS, filesystems and UART console. Blocking network
+operations on core 0 can overlap USB progress on core 1 at the stock 150 MHz.
+There is no measured speedup or doubling-of-performance claim; physical USB
+acceptance/latency measurements are pending.
 
 The descriptor currently uses Raspberry Pi's development VID/PID 2e8a:000a;
 a production identity must be assigned before release. Board unique ID supplies
@@ -178,8 +184,12 @@ The first 3 MiB (offset 0x000000–0x2fffff) are firmware. LittleFS exclusively 
 `flash_limit.ld` fails the link if `__flash_binary_end` crosses 0x10300000, and all
 block callbacks independently reject overflow, misalignment and out-of-partition
 requests. Programs copy one page into RAM before `flash_safe_execute`; erase and
-program execute with interrupts disabled and core 1 declared inactive. Do not
-launch core 1 without replacing that declaration with coordinated flash lockout.
+program execute with core 0 interrupts disabled and core 1 paused by the SDK
+multicore flash lockout. The USB worker registers as a lockout victim before
+TinyUSB initialization and readiness publication. Core 0 must receive readiness
+before mounting flash; initialization failure or a 2-second readiness timeout
+returns from boot without mounting. The SDK ROM launch handshake precedes this
+application timeout. Application messages never use the intercore FIFO.
 USB/radio service can pause during erase; hardware timing remains unmeasured.
 
 LittleFS uses 256-byte caches, a 32-byte lookahead and `block_cycles=500` wear-level
@@ -233,7 +243,8 @@ overrides reserve 0x2007c000–0x2007ffff for that stack, with `__HeapLimit` at
 The 16 KiB reservation is a starting budget, **not a measured stack high-water
 mark**; TLS crypto executes in the background lwIP callback context. Static RAM
 excludes each TLS object's 16 KiB receive ring, mbedTLS records/certificates,
-request/read replay caches, the USB channel object and other core heap use.
+request/read replay caches and other core heap use. USB bridge queues are fixed
+static storage; only the small Channel facade is dynamically allocated.
 
 ### HTTP API and bounds
 
@@ -312,10 +323,10 @@ python3 tests/test_pico_size_report.py
 It parses the ARM ELF as data; it never runs it. Component totals count initialized
 RAM in both flash and RAM, exclude discarded sections and omit linker padding.
 The binary and allocated ELF sections supply the authoritative physical totals.
-The minimum heap reservation is not a cap on heap usage. The final reproducible
+The minimum heap reservation is not a cap on heap usage. The earlier reproducible
 [build-only record](measurements/2026-11-15-build.json) identifies the base commit and changes committed alongside it,
-and explicitly leaves runtime peaks null. Two fixture tests validate the report's
-map/ELF accounting, and the tool reproduces 1153112 flash / 222312 static RAM bytes.
+and explicitly leaves runtime peaks null. That historical record reports 1153112 flash / 222312 static RAM bytes. The
+current dual-core record and its per-core stack accounting are below.
 
 Final host validation: all six external POSIX CTest checks pass (881 native cases).
 The existing subprocess disk test timed out in two runs during compilation;
@@ -329,7 +340,7 @@ restored byte-for-byte. No submodule pins were changed and nothing was pushed.
 - [x] Preserve POSIX/ESP32 compatibility and source-list isolation.
 - [ ] Physical USB, Wi-Fi, flash and TLS acceptance (no board attached, confirmed by maintainer).
 - [ ] Measure peak heap and stack with one live TLS connection; decide runtime fit in 520 KiB.
-- [ ] Optional UART transport, scan/BSSID selection, SNTP, memory low-water marks and core-1 task.
+- [ ] Optional UART transport, scan/BSSID selection, SNTP and memory low-water marks.
 
 Final hardening verification adds full-window raw receive/backpressure, FIFO accept
 ordering and handle exhaustion, deadlines across the 32-bit millisecond boundary,
@@ -357,3 +368,61 @@ Reproduce: source the workspace environment, then `cmake -S tests/pico-tls
 `ctest --test-dir /tmp/nio-pico-tls-tests --output-on-failure` (3/3 passed).
 The separately linked [TLS pool measurement](measurements/2026-11-15-tls-pool.json)
 preserves the earlier measurements and includes the enlarged static lwIP pool.
+
+### Dual-core USB verification (2026-11-15)
+
+The [dual-core build record](measurements/2026-11-15-dual-core.json) reports both
+stack reservations. Linker symbols put core 0 at 0x2007c000–0x20080000 and core 1
+at 0x20080000–0x20081000 (scratch-X); `__HeapLimit` is 0x2007c000. Core 1's 4 KiB
+budget requires physical high-water validation under reset/reconnect and flash
+activity. Both cores remain at the board's stock 150 MHz.
+
+One permanent bridge owns all queue, fault, epoch and attachment state under a
+Pico SDK mutex. Channel destruction detaches without leaving a pointer in the
+worker; a second simultaneous channel is rejected. Core 1 holds the mutex only
+for bounded queue/FIFO work, never across `tud_task`, waits, flash operations,
+logging or application callbacks. Core 0 never holds it while requesting flash
+lockout, so a paused worker cannot block the flash operation. No application or
+network code, C++ allocation or logging runs on core 1. TinyUSB task callbacks
+invalidate the session and clear CDC buffers immediately. A non-claiming app
+class driver observes `configuration_reset` in exact task event order, before
+CDC resets its FIFOs. It never claims an interface or endpoint; no IRQ-side
+flag is needed. A reset and reconnect in the same `tud_task` preserves newly
+received data. Staged bytes count against TX capacity
+and are discarded on detach, reset, disconnect or overflow quarantine.
+
+Source the workspace environment before these native gates:
+
+- `cmake -S tests/pico -B /tmp/nio-pico-raw-tests`, build with `-j4`, then
+  `ctest --test-dir /tmp/nio-pico-raw-tests --output-on-failure`: 6/6 pass, including
+  production worker/channel adapters with core ownership, lockout registration,
+  startup failure/timeout, reconnect, ordered reset, stale responses, attachment
+  and teardown mocks.
+- `cmake -S tests/pico-usb -B /tmp/nio-pico-usb-tests`, build with `-j4`, then
+  `ctest --test-dir /tmp/nio-pico-usb-tests --output-on-failure`: 6 cases pass,
+  including RX backpressure, atomic overflow quarantine, short/zero TX submit,
+  staged session isolation and two threads exchanging 100000 ordered bytes in
+  each direction through bounded queues.
+- `python3 -m unittest discover -s tests -p test_pico_size_report.py`: 3 pass,
+  including separate stack accounting without counting stacks as static RAM.
+
+Pico ELF/UF2 links. Source-list generation was run, POSIX/ESP32 lists were
+inspected for Pico leakage, and incidental template rewrites were restored.
+USB pauses during flash erase/program while core 1 is safely locked out; pause
+duration, physical concurrency, reconnect timing, sustained throughput, and
+both stacks' runtime peaks remain unmeasured. No hardware was available.
+
+Review hardening adds an atomic read-epoch capture and conditional response
+write. A request that blocks on core 0 across a disconnect/reconnect cannot
+send its response to the new USB session; only a nonempty read adopts that
+session. Querying the epoch or performing an empty read never adopts it.
+The production adapter regression covers reset arriving during task dispatch,
+reconnect and fresh bytes in that same dispatch, and stale/current responses.
+
+This guards the Pico Channel boundary, not shared FujiBus framing. IOService
+polls once, then handles and responds to queued requests serially, so responses
+to a slow request and the remaining queued requests retain the old read epoch.
+Existing shared framer partial/queued state still lacks epoch fencing. For
+example, an invalid frame can end a drain early, allowing a later poll to read
+new-session bytes before an older queued frame is dispatched. Complete shared
+framer/queue session isolation remains separate deferred work.

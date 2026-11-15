@@ -4,6 +4,7 @@ from pathlib import Path
 import struct
 import sys
 import unittest
+from unittest.mock import Mock, patch
 sys.dont_write_bytecode = True
 SPEC = importlib.util.spec_from_file_location("pico_size_report", Path(__file__).parents[1] / "pico2w/size_report.py")
 REPORT = importlib.util.module_from_spec(SPEC)
@@ -29,6 +30,22 @@ Linker script and memory map
         self.assertEqual(totals["NIO core"], {"flash_bytes": 32, "static_ram_bytes": 0})
         self.assertEqual(totals["NIO platform/app"], {"flash_bytes": 16, "static_ram_bytes": 24})
         self.assertNotIn("Pico SDK/TinyUSB", totals)
+
+    def test_both_core_stacks_are_reported_separately_and_not_static_ram(self):
+        sections = {
+            ".data": (0x20000000, 100, 3),
+            ".heap": (0x20000100, 2048, 3),
+            ".stack_dummy": (0x2007c000, 16384, 3),
+            ".stack1_dummy": (0x20080000, 4096, 3),
+        }
+        path = Mock()
+        path.stat.return_value.st_size = 1234
+        with patch.object(REPORT, "elf_sections", return_value=sections), \
+                patch.object(REPORT, "map_components", return_value={}):
+            result = REPORT.report(path, path, path)
+        self.assertEqual(result["stack_reservation_bytes"], 20480)
+        self.assertEqual(result["stack_reservation_bytes_by_core"], {"core0": 16384, "core1": 4096})
+        self.assertEqual(result["static_ram_bytes"], 100)
 
     def test_elf_parser_reads_sections_without_executing_anything(self):
         names = b"\0.data\0.bss\0.shstrtab\0"

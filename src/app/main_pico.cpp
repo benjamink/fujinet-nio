@@ -37,7 +37,10 @@ static constexpr const char* TAG = "nio";
 int main()
 {
     stdio_init_all();
-    platform::pico::init_usb();
+    if (!platform::pico::start_usb_worker()) {
+        FN_LOGE(TAG, "USB worker startup failed; flash initialization prohibited");
+        return 1;
+    }
     if (cyw43_arch_init() != 0) {
         FN_LOGE(TAG, "CYW43 init failed");
         return 1;
@@ -107,12 +110,10 @@ int main()
     console::ConsoleEngine console(diagnostics,*consoleTransport,core.storageManager());
     console.set_reboot_handler([] { watchdog_reboot(0,0,0); });
     for (;;) {
-        platform::pico::service_usb();
         platform::pico::service_console();
         console.step(0);
         wifi.poll();
         core.tick();
-        platform::pico::service_usb();
         sleep_ms(1);
     }
 }
