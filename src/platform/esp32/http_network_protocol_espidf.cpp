@@ -276,6 +276,14 @@ static esp_err_t event_handler(esp_http_client_event_t* evt)
 
     case HTTP_EVENT_ON_DATA: {
         if (evt->data_len > 0) note_network_activity();
+        // The headers are parsed before the first body byte: publish the status
+        // and length now, as the upload path does after fetch_headers. Otherwise
+        // they appear only when perform() returns, and a body larger than the
+        // stream buffer holds perform() until the client reads, so a client that
+        // asks info() for the status before reading would wait forever.
+        take_mutex(s->meta_mutex);
+        set_status_and_length(*s);
+        give_mutex(s->meta_mutex);
         // For HEAD, ignore the body entirely (but allow perform() to drain).
         if (s->method == 5) {
             break;
