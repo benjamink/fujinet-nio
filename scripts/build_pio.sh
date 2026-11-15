@@ -132,7 +132,7 @@ echo "Virtual env: $VIRTUAL_ENV"
 # If pio is the one installed by the system it runs the system
 # python instead of the penv python, blocking pip from installing
 # packages
-PIO=$(command -v pio)
+PIO=$(command -v pio || true)
 if [ "${PIO}" != "${VENV_ROOT}/bin/pio" ] ; then
     pip install platformio || exit 1
 fi
