@@ -48,14 +48,14 @@ SRAM and 4 MB of flash.
 | Area | State |
 |---|---|
 | Core, devices, config, services | Real (`src/lib`) |
-| Build profile | `src/lib/build_profile/rp2350_pico2w.cpp` (FujiBus over USB CDC, not wired up) |
+| Build profile | `src/lib/build_profile/rp2350_pico2w.cpp` (FujiBus over USB CDC) |
 | Wi-Fi link | Real: `src/platform/pico/wifi_link.cpp`, CYW43 through `cyw43_arch`. No scan, no BSSID pinning |
 | Sockets (TCP, UDP, DNS) | Raw lwIP: bounded receive queues, opaque addresses, TCP listener/client and TNFS TCP/UDP |
 | TCP protocol | Portable TCP state machine over raw lwIP |
 | TLS, HTTP | **Stub**: `network_registry.cpp` registers the stub protocol |
-| Channel (USB CDC, UART) | **Stub**: `channel_factory.cpp` returns nullptr; `main_pico.cpp` runs without a transport |
+| Channel | TinyUSB CDC for FujiBus; UART0 is reserved for logs/console |
 | Filesystem | **Stub**: no `flash` filesystem, so config stays in memory |
-| Console | **Stub** |
+| Console | Cooperative diagnostics and filesystem shell over UART0 |
 | Memory stats | Approximate (newlib `mallinfo`) |
 | Threads | Shims: `compat/mutex` is a real Pico SDK mutex; `compat/condition_variable` polls; no service tasks |
 | Time, logging | Shared with `src/platform/posix` (portable newlib code) |
@@ -121,6 +121,7 @@ so use `arm-none-eabi-size -A` and the linker map instead.
 |---|---:|---:|---:|
 | Baseline skeleton (remeasured) | 855364 | 68884 | 2048 / 2048 |
 | 1: sockets and TNFS | 934792 | 146836 | 2048 / 2048 |
+| 2: USB and console | 995432 | 163152 | 2048 / 2048 |
 
 Map component totals (flash/static RAM input bytes; excludes linker alignment):
 
@@ -150,3 +151,27 @@ empty and truncated datagrams. The external POSIX PTY build passes all six CTest
 checks, and the configured ESP32 bench S3 firmware links. No hardware acceptance,
 radio throughput, flash endurance, or TLS runtime heap/stack measurements exist.
 Static RAM remains a lower bound; it does not establish that a TLS connection fits.
+
+### USB and console ownership
+
+One full-speed CDC ACM interface carries FujiBus only. `pico_stdio_usb` is disabled;
+stdio logs and console use UART0, GPIO0 TX/GPIO1 RX, 115200 baud, 3.3 V logic.
+TinyUSB is serviced before and after every core tick. Its RX/TX FIFOs are 4096 bytes;
+the channel queues at most 16384 additional TX bytes and submits at most 64 bytes
+per service call. Writes are atomic: overflow quarantines the stream and clears
+FIFOs until the host disconnects/reconnects. Connection epochs invalidate partial
+protocol state. UART console output queues 8192 bytes, truncates excess with an
+explicit marker, and drains only while UART is writable. Logs share UART output.
+Blocking DNS/TNFS operations can delay USB servicing by up to their bounded timeout;
+USB acceptance/latency measurements are pending hardware.
+
+The descriptor currently uses Raspberry Pi's development VID/PID 2e8a:000a;
+a production identity must be assigned before release. Board unique ID supplies
+its serial. UART channel transport is optional future work, separate from console.
+
+USB-stage map flash/RAM input bytes: CYW43 236622/2598, core 241145/181,
+platform/app 121939/65950, SDK/TinyUSB 25878/13174, libstdc++ 182383/4473,
+lwIP 31376/66212, newlib/libgcc 79386/8121, yaml-cpp 72306/1993, other 2178/20.
+Native Pico helper selection passes 4 cases/49 assertions, including bounded USB
+writes, ordering, overflow quarantine, and reconnect queue isolation. Pico ELF/UF2
+links; USB enumeration and UART console interaction remain untested on hardware.

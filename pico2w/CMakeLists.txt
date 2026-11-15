@@ -59,6 +59,10 @@ list(APPEND NIO_PICO_PLATFORM_SOURCES
 # Single-core measurement of the real thing: no <mutex>/<thread> in newlib.
 add_executable(fujinet_nio_pico2w
     ${NIO}/src/app/main_pico.cpp
+    ${NIO}/src/app/console_engine.cpp
+    ${NIO}/src/app/console_commands.cpp
+    ${NIO}/src/app/console_parse.cpp
+    ${NIO}/src/app/console_fs_shell.cpp
     ${NIO}/src/lib/build_profile/rp2350_pico2w.cpp
     ${NIO}/src/lib/hotsync_init_off.cpp
     ${NIO}/third_party/cjson/cJSON.c
@@ -87,14 +91,17 @@ target_compile_options(fujinet_nio_pico2w PRIVATE
 target_link_options(fujinet_nio_pico2w PRIVATE -Wl,--gc-sections -Wl,-Map=$<TARGET_FILE:fujinet_nio_pico2w>.map)
 target_link_libraries(fujinet_nio_pico2w PRIVATE
     pico_stdlib
+    pico_unique_id
+    tinyusb_device
+    tinyusb_board
     pico_cyw43_arch_lwip_threadsafe_background
     pico_mbedtls
     hardware_flash
     hardware_watchdog
     yaml-cpp
 )
-pico_enable_stdio_usb(fujinet_nio_pico2w 1)
-pico_enable_stdio_uart(fujinet_nio_pico2w 0)
+pico_enable_stdio_usb(fujinet_nio_pico2w 0)
+pico_enable_stdio_uart(fujinet_nio_pico2w 1)
 pico_add_extra_outputs(fujinet_nio_pico2w)
 
 # Size report: flash and static RAM of the gc-sections link.

@@ -13,6 +13,7 @@ template<std::size_t Capacity> class ByteRing {
     std::array<std::uint8_t, Capacity> bytes_{};
     std::size_t head_ = 0, size_ = 0;
 public:
+    void clear() { head_=0; size_=0; }
     std::size_t size() const { return size_; }
     std::size_t free() const { return Capacity - size_; }
     bool push(const void* source, std::size_t n) {

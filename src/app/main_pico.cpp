@@ -8,6 +8,9 @@
 #include "pico/cyw43_arch.h"
 #include "hardware/watchdog.h"
 #include "pico/stdlib.h"
+#include "fujinet/platform/pico/usb_service.h"
+#include "fujinet/console/console_engine.h"
+#include "fujinet/diag/diagnostic_provider.h"
 
 #include "fujinet/build/profile.h"
 #include "fujinet/core/bootstrap.h"
@@ -34,6 +37,7 @@ static constexpr const char* TAG = "nio";
 int main()
 {
     stdio_init_all();
+    platform::pico::init_usb();
     if (cyw43_arch_init() != 0) {
         FN_LOGE(TAG, "CYW43 init failed");
         return 1;
@@ -84,16 +88,31 @@ int main()
         apply_boot_mount(diskDev->disk_service(), core.storageManager(), config.boot, 0);
     }
 
-    // The transport: no channel exists for this profile yet, so the core runs
-    // without one (README, "Channel"). Everything above is what gets measured.
+    // One CDC is exclusively owned by FujiBus; UART0 carries logs and console.
     auto channel = platform::create_channel_for_profile(profile, config, diskDev ? &diskDev->disk_service() : nullptr);
     if (channel) {
         core::setup_transports(core, *channel, profile, &config, nullptr);
     }
 
+    diag::DiagnosticRegistry diagnostics;
+    auto coreDiag=diag::create_core_diagnostic_provider(core);
+    auto wifiContext=std::make_shared<diag::NetworkDiagWifiContext>();
+    wifiContext->fuji=fujiConcrete; wifiContext->ensure_wifi=[&wifi] { return &wifi; };
+    auto netDiag=diag::create_network_diagnostic_provider(core,wifiContext);
+    auto diskDiag=diag::create_disk_diagnostic_provider(core);
+    auto appDiag=diag::create_app_store_diagnostic_provider(core);
+    diagnostics.add_provider(*coreDiag); diagnostics.add_provider(*netDiag);
+    diagnostics.add_provider(*diskDiag); diagnostics.add_provider(*appDiag);
+    auto consoleTransport=console::create_default_console_transport();
+    console::ConsoleEngine console(diagnostics,*consoleTransport,core.storageManager());
+    console.set_reboot_handler([] { watchdog_reboot(0,0,0); });
     for (;;) {
+        platform::pico::service_usb();
+        platform::pico::service_console();
+        console.step(0);
         wifi.poll();
         core.tick();
+        platform::pico::service_usb();
         sleep_ms(1);
     }
 }
