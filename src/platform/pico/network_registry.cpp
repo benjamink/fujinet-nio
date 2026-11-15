@@ -1,7 +1,9 @@
 #include "fujinet/platform/network_registry.h"
 
-#include "fujinet/io/devices/network_protocol_stub.h"
 #include "detail/tcp_protocol.h"
+#include "detail/tls_protocol.h"
+#include "detail/http_protocol.h"
+#include "pico/time.h"
 
 namespace fujinet::platform {
 
@@ -10,8 +12,14 @@ io::ProtocolRegistry make_default_network_registry()
 {
     io::ProtocolRegistry r;
     r.register_scheme("tcp", [] { return std::make_unique<pico::TcpProtocol>(); });
-    for (const char* scheme : {"tls", "http", "https"}) {
-        r.register_scheme(scheme, [] { return std::make_unique<io::StubNetworkProtocol>(); });
+    r.register_scheme("tls", [] { return pico::make_tls_protocol(); });
+    for (const char* scheme : {"http", "https"}) {
+        r.register_scheme(scheme, [] {
+            return pico::make_http_protocol([](bool tls)->std::unique_ptr<io::INetworkProtocol> {
+                if(tls) return pico::make_tls_protocol();
+                return std::make_unique<pico::TcpProtocol>();
+            }, [] { return to_ms_since_boot(get_absolute_time()); });
+        });
     }
     return r;
 }

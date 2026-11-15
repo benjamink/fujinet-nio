@@ -3,7 +3,7 @@
 # An independent Pico SDK project, like bridges/*: the ESP-IDF and POSIX builds
 # do not include it. It compiles the portable core (src/lib) plus the Pico
 # platform layer (src/platform/pico). See pico2w/README.md for what is real and
-# what is still a stub.
+# build measurements and hardware acceptance limits.
 #
 #   source scripts/env.sh        # exports PICO_SDK_PATH
 #   cmake -S pico2w -B build/pico2w && cmake --build build/pico2w
@@ -35,6 +35,19 @@ set(PICO_CXX_ENABLE_RTTI 1)        # dynamic_cast on devices, as on ESP32
 pico_sdk_init()
 
 set(NIO ${CMAKE_CURRENT_LIST_DIR}/..)
+set(NIO_PICO_CA_BUNDLE "${CMAKE_CURRENT_LIST_DIR}/certs/isrg-root-x1.pem" CACHE FILEPATH "PEM platform CA roots")
+file(READ "${NIO_PICO_CA_BUNDLE}" NIO_PICO_CA_PEM)
+configure_file(trust_roots.h.in generated/trust_roots.h @ONLY)
+option(FN_HTTPS_TEST_CA "Trust only FujiNet test CA" OFF)
+option(FN_HTTPS_TEST_CA_ADDITIVE "Add FujiNet test CA to platform roots" OFF)
+if(FN_HTTPS_TEST_CA AND FN_HTTPS_TEST_CA_ADDITIVE)
+    message(FATAL_ERROR "Choose only one test CA trust mode")
+endif()
+# SDK 2.3.1 entropy polling overruns a final non-eight-byte chunk. Own this
+# callback with a remaining-length copy; hardware SHA ALT is not enabled.
+get_target_property(NIO_MBEDTLS_SOURCES pico_mbedtls INTERFACE_SOURCES)
+list(FILTER NIO_MBEDTLS_SOURCES EXCLUDE REGEX "/pico_mbedtls\.c$")
+set_property(TARGET pico_mbedtls PROPERTY INTERFACE_SOURCES "${NIO_MBEDTLS_SOURCES}")
 
 # yaml-cpp, as for the POSIX build: library only.
 set(YAML_CPP_BUILD_TESTS   OFF CACHE BOOL "" FORCE)
@@ -50,10 +63,8 @@ list(FILTER NIO_LIB_SOURCES EXCLUDE REGEX "/src/lib/(build_profile|visor_usb|hot
 list(FILTER NIO_LIB_SOURCES EXCLUDE REGEX "/src/lib/(diagnostic_hotsync_provider|diagnostic_uart_channel_provider|fs_stdio)\\.cpp$")
 
 file(GLOB NIO_PICO_PLATFORM_SOURCES CONFIGURE_DEPENDS ${NIO}/src/platform/pico/*.cpp)
-# Portable newlib code that lives under posix/ today (stdio logging, <ctime> time
-# and timezone helpers). Shared, not copied; promote to src/lib if a third user appears.
+# Portable stdio logging remains shared with POSIX. Pico owns its clock backend.
 list(APPEND NIO_PICO_PLATFORM_SOURCES
-    ${NIO}/src/platform/posix/time.cpp
     ${NIO}/src/platform/posix/logging.cpp)
 
 # Single-core measurement of the real thing: no <mutex>/<thread> in newlib.
@@ -74,6 +85,7 @@ add_executable(fujinet_nio_pico2w
 )
 
 target_include_directories(fujinet_nio_pico2w PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
     ${CMAKE_CURRENT_LIST_DIR}            # lwipopts.h, mbedtls_config.h
     ${CMAKE_CURRENT_LIST_DIR}/compat     # <mutex>, <condition_variable> for newlib
     ${NIO}/include
@@ -84,6 +96,9 @@ target_include_directories(fujinet_nio_pico2w PRIVATE
     ${NIO}/third_party/esp/esp_littlefs/src/littlefs
 )
 target_compile_definitions(fujinet_nio_pico2w PRIVATE
+    FN_HTTPS_TEST_CA=$<BOOL:${FN_HTTPS_TEST_CA}>
+    FN_HTTPS_TEST_CA_ADDITIVE=$<BOOL:${FN_HTTPS_TEST_CA_ADDITIVE}>
+    PICO_STACK_SIZE=16384
     PICO_FLASH_ASSUME_CORE1_SAFE=1 # core 1 is never launched
     FN_PLATFORM_PICO
     PICO_CYW43_ARCH_THREADSAFE_BACKGROUND=1
@@ -92,13 +107,21 @@ target_compile_options(fujinet_nio_pico2w PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:-Wno-psabi>
     -ffunction-sections -fdata-sections
 )
-target_link_options(fujinet_nio_pico2w PRIVATE -Wl,-T,${CMAKE_CURRENT_LIST_DIR}/flash_limit.ld -Wl,--gc-sections -Wl,-Map=$<TARGET_FILE:fujinet_nio_pico2w>.map)
+# TLS callbacks share core 0's stack. Reserve 16KiB at the top of main SRAM
+# using SDK memory-location overrides; the default scratch-Y bank is only 4KiB.
+target_link_options(fujinet_nio_pico2w PRIVATE
+    -Wl,--defsym=RAM_LENGTH=507904
+    -Wl,--defsym=SCRATCH_Y_ORIGIN=0x2007c000
+    -Wl,--defsym=SCRATCH_Y_LENGTH=16384
+    -Wl,-T,${CMAKE_CURRENT_LIST_DIR}/flash_limit.ld -Wl,--gc-sections -Wl,-Map=$<TARGET_FILE:fujinet_nio_pico2w>.map)
 target_link_libraries(fujinet_nio_pico2w PRIVATE
     pico_stdlib
     pico_unique_id
     tinyusb_device
     tinyusb_board
     pico_cyw43_arch_lwip_threadsafe_background
+    pico_lwip_mbedtls
+    pico_rand
     pico_mbedtls
     pico_flash
     hardware_flash

@@ -305,3 +305,12 @@ namespace fujinet::platform {
 net::ITcpSocketOps& default_tcp_socket_ops() { static net::RawTcp ops; return ops; }
 net::IUdpSocketOps& default_udp_socket_ops() { static net::RawUdp ops; return ops; }
 }
+
+namespace fujinet::platform::pico {
+int resolve_tls_address(const char* host, const char* port, ip_addr_t& ip, std::uint16_t& number) {
+    net::AddrInfo* address=nullptr;
+    const int error=net::resolve(host,port,1,&address);
+    if(error) return error;
+    ip=address->ip; number=address->port; delete address; return 0;
+}
+}

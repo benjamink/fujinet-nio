@@ -2,9 +2,14 @@
 #define FUJINET_PICO2W_MBEDTLS_CONFIG_H
 
 // TLS 1.2 client, as small as is useful: the size of this file is the TLS
-// footprint (README, "Memory"). The RP2350 has a hardware SHA-256 and a TRNG;
-// they are not used here yet.
+// footprint (README, "Memory"). Entropy uses the RP2350 TRNG through pico_rand;
+// certificate dates use the explicit Pico clock. Hardware SHA is not enabled.
+#define MBEDTLS_ALLOW_PRIVATE_ACCESS // SDK ALTCP mbedTLS 3 adapter accesses record state
 #define MBEDTLS_HAVE_ASM
+#define MBEDTLS_HAVE_TIME
+#define MBEDTLS_HAVE_TIME_DATE
+#define MBEDTLS_PLATFORM_TIME_ALT
+#define MBEDTLS_PLATFORM_MS_TIME_ALT
 #define MBEDTLS_PLATFORM_C
 #define MBEDTLS_PLATFORM_MEMORY
 #define MBEDTLS_NO_PLATFORM_ENTROPY
@@ -29,6 +34,7 @@
 #define MBEDTLS_ECDH_C
 #define MBEDTLS_ECDSA_C
 #define MBEDTLS_ECP_DP_SECP256R1_ENABLED
+#define MBEDTLS_ECP_DP_SECP384R1_ENABLED
 #define MBEDTLS_PEM_PARSE_C
 #define MBEDTLS_BASE64_C
 #define MBEDTLS_X509_USE_C
@@ -39,7 +45,7 @@
 #define MBEDTLS_SSL_CLI_C
 #define MBEDTLS_SSL_PROTO_TLS1_2
 #define MBEDTLS_SSL_SERVER_NAME_INDICATION
-#define MBEDTLS_SSL_MAX_CONTENT_LEN 4096
+#define MBEDTLS_SSL_MAX_CONTENT_LEN 16384
 #define MBEDTLS_ERROR_C
 
 #endif

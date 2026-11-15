@@ -1,0 +1,4 @@
+#pragma once
+namespace fujinet::platform::pico {
+inline constexpr char platform_roots[] = R"NIO_CERT(@NIO_PICO_CA_PEM@)NIO_CERT";
+}
