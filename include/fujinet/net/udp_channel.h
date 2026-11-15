@@ -6,8 +6,6 @@
 #include <string>
 #include <memory>
 #include <cstddef>
-#include <cstring>
-#include <sys/socket.h>
 
 namespace fujinet::net {
 
@@ -16,6 +14,8 @@ class UdpChannel final : public fujinet::io::Channel {
 public:
     explicit UdpChannel(IUdpSocketOps& socket_ops, const std::string& host, uint16_t port);
     ~UdpChannel() override;
+    UdpChannel(const UdpChannel&) = delete;
+    UdpChannel& operator=(const UdpChannel&) = delete;
 
     bool available() override;
     std::size_t read(std::uint8_t* buffer, std::size_t max_len) override;
@@ -30,8 +30,9 @@ private:
     uint16_t port_;
     int socket_fd_;
     bool connected_;
-    struct sockaddr_storage peer_addr_;
-    socklen_t peer_addr_len_;
+    AddrInfo* peer_addresses_ = nullptr;
+    const sockaddr* peer_addr_ = nullptr;
+    SockLen peer_addr_len_ = 0;
 };
 
 } // namespace fujinet::net

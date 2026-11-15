@@ -102,6 +102,13 @@ public:
         return reinterpret_cast<AddrInfo*>(reinterpret_cast<struct addrinfo*>(ai)->ai_next);
     }
 
+    AddrInfo* preferred_address(AddrInfo* ai) override {
+        for (auto* p = ai; p; p = addrinfo_next(p)) {
+            if (addrinfo_family(p) == AF_INET) return p;
+        }
+        return ai;
+    }
+
     int addrinfo_family(AddrInfo* ai) override {
         return reinterpret_cast<struct addrinfo*>(ai)->ai_family;
     }

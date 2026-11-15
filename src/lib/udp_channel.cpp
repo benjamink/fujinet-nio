@@ -2,6 +2,7 @@
 #include "fujinet/core/logging.h"
 #include "fujinet/core/utils.h"
 
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -53,28 +54,15 @@ UdpChannel::UdpChannel(IUdpSocketOps& socket_ops, const std::string& host, uint1
         return;
     }
 
-    // Prefer IPv4 first for localhost-style endpoints because many TNFS daemons
-    // are bound only on IPv4. Fallback to the first usable address.
-    AddrInfo* chosen = nullptr;
-    for (AddrInfo* ai = res; ai; ai = socket_ops_.addrinfo_next(ai)) {
-        if (socket_ops_.addrinfo_family(ai) == AF_INET) {
-            chosen = ai;
-            break;
-        }
-    }
-    if (!chosen) {
-        chosen = res;
-    }
-
-    sockaddr_storage temp_addr{};
+    AddrInfo* chosen = socket_ops_.preferred_address(res);
     SockLen addrlen = 0;
     const struct sockaddr* addr = socket_ops_.addrinfo_addr(chosen, &addrlen);
-    if (!addr || addrlen > sizeof(temp_addr)) {
+    if (!addr || !addrlen) {
         FN_LOGE(TAG, "Failed to get UDP peer address for %s", host_.c_str());
         socket_ops_.freeaddrinfo(res);
         return;
     }
-    std::memcpy(&peer_addr_, addr, addrlen);
+    peer_addr_ = addr;
     peer_addr_len_ = addrlen;
 
     socket_fd_ = socket_ops_.socket(socket_ops_.addrinfo_family(chosen),
@@ -94,7 +82,7 @@ UdpChannel::UdpChannel(IUdpSocketOps& socket_ops, const std::string& host, uint1
         return;
     }
 
-    socket_ops_.freeaddrinfo(res);
+    peer_addresses_ = res; // Keep the opaque sockaddr alive until destruction.
     connected_ = true;
     FN_LOGI(TAG, "UDP channel created for %s:%u", host_.c_str(), static_cast<unsigned>(port_));
 }
@@ -104,6 +92,7 @@ UdpChannel::~UdpChannel()
     if (socket_fd_ >= 0) {
         socket_ops_.close(socket_fd_);
     }
+    if (peer_addresses_) socket_ops_.freeaddrinfo(peer_addresses_);
 }
 
 bool UdpChannel::available()
@@ -130,9 +119,7 @@ std::size_t UdpChannel::read(std::uint8_t* buffer, std::size_t max_len)
         return 0;
     }
 
-    sockaddr_storage src_addr{};
-    socklen_t src_addr_len = sizeof(src_addr);
-    const SSize bytes_read = socket_ops_.recvfrom(socket_fd_, buffer, max_len, reinterpret_cast<struct sockaddr*>(&src_addr), &src_addr_len);
+    const SSize bytes_read = socket_ops_.recvfrom(socket_fd_, buffer, max_len, nullptr, nullptr);
     if (bytes_read < 0) {
         const int err = socket_ops_.last_errno();
         if (err == ECONNREFUSED) {
@@ -160,7 +147,7 @@ void UdpChannel::write(const std::uint8_t* buffer, std::size_t len)
 
     log_datagram("Sending", buffer, len);
 
-    const SSize bytes_sent = socket_ops_.sendto(socket_fd_, buffer, len, reinterpret_cast<const struct sockaddr*>(&peer_addr_), peer_addr_len_);
+    const SSize bytes_sent = socket_ops_.sendto(socket_fd_, buffer, len, peer_addr_, peer_addr_len_);
     if (bytes_sent < 0) {
         FN_LOGE(TAG, "Write failed: %s", socket_ops_.err_string(socket_ops_.last_errno()));
         connected_ = false;

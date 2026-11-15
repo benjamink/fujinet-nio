@@ -71,6 +71,9 @@ public:
     // small fixed queue report it so senders can bound their requests in flight.
     virtual std::size_t recv_queue_depth() const { return std::numeric_limits<std::size_t>::max(); }
 
+    // Preferred endpoint (e.g. IPv4 for TNFS daemons); belongs to the input list.
+    virtual AddrInfo* preferred_address(AddrInfo* ai) { return ai; }
+
     // Get address family, socktype, protocol from addrinfo
     virtual int addrinfo_family(AddrInfo* ai) = 0;
     virtual int addrinfo_socktype(AddrInfo* ai) = 0;
