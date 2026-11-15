@@ -3,8 +3,7 @@
 A first port of NIO's firmware to the **Pico 2 W** (RP2350, Cortex-M33, CYW43439
 Wi-Fi). The portable core (`src/lib`), config store, devices, Wi-Fi, raw TCP/UDP/DNS,
 TNFS, USB CDC, UART console, LittleFS, TLS and HTTP/HTTPS build and link for the
-board. Nothing here
-has run on hardware yet.
+board. Nothing here has run on hardware yet.
 
 It follows the architecture rule: no `#ifdef` in shared code. The port is a new
 `src/platform/pico/` plus a `main_pico.cpp`, selected by being a different
@@ -286,3 +285,35 @@ For example, `cmake -S tests/pico-http -B /tmp/nio-pico-http-tests`, then
 These tests exercise native logic and mocked hardware boundaries; they are not
 USB/radio/flash hardware or live-TLS peak measurements. Raw and LittleFS targets
 also pass AddressSanitizer/UndefinedBehaviorSanitizer (including vendor C).
+
+### Measurement report and remaining acceptance
+
+Run the checked-in report tool against the matching ELF, map and binary:
+
+```sh
+python3 pico2w/size_report.py /tmp/nio-pico2w-build/fujinet_nio_pico2w.elf.map
+python3 pico2w/size_report.py /tmp/nio-pico2w-build/fujinet_nio_pico2w.elf.map --json
+python3 tests/test_pico_size_report.py
+```
+
+It parses the ARM ELF as data; it never runs it. Component totals count initialized
+RAM in both flash and RAM, exclude discarded sections and omit linker padding.
+The binary and allocated ELF sections supply the authoritative physical totals.
+The minimum heap reservation is not a cap on heap usage. The final reproducible
+[build-only record](measurements/2026-11-15-build.json) identifies the firmware commit
+and explicitly leaves runtime peaks null. Two fixture tests validate the report's
+map/ELF accounting, and the tool reproduces 1102836 flash / 173288 static RAM bytes.
+
+Final host validation: all six external POSIX CTest checks pass (879 native cases).
+The existing subprocess disk test timed out in two runs during compilation;
+its isolated 149-assertion retry and final full run with an idle toolchain passed.
+The ESP32 bench S3 build passed after the separate prerequisite switch fix.
+Generated POSIX and ESP32 source lists were inspected for Pico leakage and then
+restored byte-for-byte. No submodule pins were changed and nothing was pushed.
+
+- [x] Link Pico ELF/UF2 and measure each required backend stage.
+- [x] Verify socket/USB/flash/HTTP logic and TLS trust/time policy natively.
+- [x] Preserve POSIX/ESP32 compatibility and source-list isolation.
+- [ ] Physical USB, Wi-Fi, flash and TLS acceptance (no board attached, confirmed by maintainer).
+- [ ] Measure peak heap and stack with one live TLS connection; decide runtime fit in 520 KiB.
+- [ ] Optional UART transport, scan/BSSID selection, SNTP, memory low-water marks and core-1 task.

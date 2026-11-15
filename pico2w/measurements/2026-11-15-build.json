@@ -1,0 +1,62 @@
+{
+  "flash_binary_bytes": 1102836,
+  "static_ram_bytes": 173288,
+  "minimum_heap_reservation_bytes": 2048,
+  "stack_reservation_bytes": 16384,
+  "runtime_tls_heap_peak_bytes": null,
+  "runtime_stack_peak_bytes": null,
+  "components_excluding_padding": {
+    "CYW43": {
+      "flash_bytes": 236622,
+      "static_ram_bytes": 2598
+    },
+    "LittleFS": {
+      "flash_bytes": 15002,
+      "static_ram_bytes": 0
+    },
+    "NIO core": {
+      "flash_bytes": 238790,
+      "static_ram_bytes": 181
+    },
+    "NIO platform/app": {
+      "flash_bytes": 145553,
+      "static_ram_bytes": 65970
+    },
+    "Pico SDK/TinyUSB": {
+      "flash_bytes": 29378,
+      "static_ram_bytes": 14103
+    },
+    "libstdc++": {
+      "flash_bytes": 182463,
+      "static_ram_bytes": 4473
+    },
+    "lwIP": {
+      "flash_bytes": 33826,
+      "static_ram_bytes": 66571
+    },
+    "mbedTLS": {
+      "flash_bytes": 63601,
+      "static_ram_bytes": 8776
+    },
+    "newlib/libgcc/other archives": {
+      "flash_bytes": 80664,
+      "static_ram_bytes": 8159
+    },
+    "other": {
+      "flash_bytes": 2178,
+      "static_ram_bytes": 20
+    },
+    "yaml-cpp": {
+      "flash_bytes": 72306,
+      "static_ram_bytes": 1993
+    }
+  },
+  "note": "Static lower bound only; no hardware or runtime peak measurements.",
+  "firmware_commit": "6745908b6291298e93a7def50b6279a6a6ead048",
+  "environment": {
+    "sdk": "2.3.1",
+    "compiler": "arm-none-eabi GCC 16.2",
+    "build_type": "MinSizeRel",
+    "hardware_attached": false
+  }
+}
