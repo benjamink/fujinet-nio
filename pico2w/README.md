@@ -54,7 +54,7 @@ SRAM and 4 MB of flash.
 | TCP protocol | Portable TCP state machine over raw lwIP |
 | TLS, HTTP | **Stub**: `network_registry.cpp` registers the stub protocol |
 | Channel | TinyUSB CDC for FujiBus; UART0 is reserved for logs/console |
-| Filesystem | **Stub**: no `flash` filesystem, so config stays in memory |
+| Filesystem | LittleFS `flash` on final 1 MiB, including persistent `fujinet.yaml` |
 | Console | Cooperative diagnostics and filesystem shell over UART0 |
 | Memory stats | Approximate (newlib `mallinfo`) |
 | Threads | Shims: `compat/mutex` is a real Pico SDK mutex; `compat/condition_variable` polls; no service tasks |
@@ -122,6 +122,7 @@ so use `arm-none-eabi-size -A` and the linker map instead.
 | Baseline skeleton (remeasured) | 855364 | 68884 | 2048 / 2048 |
 | 1: sockets and TNFS | 934792 | 146836 | 2048 / 2048 |
 | 2: USB and console | 995432 | 163152 | 2048 / 2048 |
+| 3: LittleFS | 1016616 | 164124 | 2048 / 2048 |
 
 Map component totals (flash/static RAM input bytes; excludes linker alignment):
 
@@ -175,3 +176,32 @@ lwIP 31376/66212, newlib/libgcc 79386/8121, yaml-cpp 72306/1993, other 2178/20.
 Native Pico helper selection passes 4 cases/49 assertions, including bounded USB
 writes, ordering, overflow quarantine, and reconnect queue isolation. Pico ELF/UF2
 links; USB enumeration and UART console interaction remain untested on hardware.
+
+### Flash partition and failure policy
+
+The first 3 MiB (offset 0x000000–0x2fffff) are firmware. LittleFS exclusively owns
+0x300000–0x3fffff (256 erase blocks of 4096 bytes, 256-byte program pages).
+`flash_limit.ld` fails the link if `__flash_binary_end` crosses 0x10300000, and all
+block callbacks independently reject overflow, misalignment and out-of-partition
+requests. Programs copy one page into RAM before `flash_safe_execute`; erase and
+program execute with interrupts disabled and core 1 declared inactive. Do not
+launch core 1 without replacing that declaration with coordinated flash lockout.
+USB/radio service can pause during erase; hardware timing remains unmeasured.
+
+LittleFS uses 256-byte caches, a 32-byte lookahead and `block_cycles=500` wear-level
+metadata relocation. File flush commits through LittleFS; files retain volume
+ownership until closed. A blank partition is formatted only after every byte is
+verified 0xff. Nonblank mount failure, read failure, or format failure leaves the
+filesystem unavailable; corruption is never silently reformatted. Back up or
+explicitly erase the partition using a maintenance tool before reinitializing it.
+
+The native `tests/pico` target uses the real LittleFS C implementation over bounded
+RAM flash. Five cases (21055 assertions) pass: persistence across remount, handles
+outliving filesystem objects, directory/file operations, corrupt first/tail bytes,
+I/O failures, and checked page/block boundaries. Firmware links with the partition
+guard. Power-loss recovery, endurance and physical writes remain hardware pending.
+
+Flash-stage map input bytes (flash/RAM): CYW43 236622/2598, LittleFS 15002/0,
+core 241145/181, platform/app 127116/65950, SDK/TinyUSB 26646/14099,
+libstdc++ 182383/4473, lwIP 31376/66212, newlib/libgcc 79560/8159,
+yaml-cpp 72306/1993, other 2178/20.

@@ -48,7 +48,7 @@ int main()
     core::FujinetCore core;
     const auto profile = build::current_build_profile();
 
-    // Filesystems. "flash" is not implemented yet and yields nullptr.
+    // LittleFS mounts the reserved final MiB; corrupt nonblank media stays untouched.
     if (auto flash = platform::pico::create_flash_filesystem()) {
         core.storageManager().registerFileSystem(std::move(flash));
     }

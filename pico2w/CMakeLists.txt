@@ -65,6 +65,8 @@ add_executable(fujinet_nio_pico2w
     ${NIO}/src/app/console_fs_shell.cpp
     ${NIO}/src/lib/build_profile/rp2350_pico2w.cpp
     ${NIO}/src/lib/hotsync_init_off.cpp
+    ${NIO}/third_party/esp/esp_littlefs/src/littlefs/lfs.c
+    ${NIO}/third_party/esp/esp_littlefs/src/littlefs/lfs_util.c
     ${NIO}/third_party/cjson/cJSON.c
     ${NIO}/third_party/cjson/cJSON_Utils.c
     ${NIO_LIB_SOURCES}
@@ -79,8 +81,10 @@ target_include_directories(fujinet_nio_pico2w PRIVATE
     ${NIO}/third_party
     ${NIO}/third_party/stb
     ${NIO}/third_party/cjson
+    ${NIO}/third_party/esp/esp_littlefs/src/littlefs
 )
 target_compile_definitions(fujinet_nio_pico2w PRIVATE
+    PICO_FLASH_ASSUME_CORE1_SAFE=1 # core 1 is never launched
     FN_PLATFORM_PICO
     PICO_CYW43_ARCH_THREADSAFE_BACKGROUND=1
 )
@@ -88,7 +92,7 @@ target_compile_options(fujinet_nio_pico2w PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:-Wno-psabi>
     -ffunction-sections -fdata-sections
 )
-target_link_options(fujinet_nio_pico2w PRIVATE -Wl,--gc-sections -Wl,-Map=$<TARGET_FILE:fujinet_nio_pico2w>.map)
+target_link_options(fujinet_nio_pico2w PRIVATE -Wl,-T,${CMAKE_CURRENT_LIST_DIR}/flash_limit.ld -Wl,--gc-sections -Wl,-Map=$<TARGET_FILE:fujinet_nio_pico2w>.map)
 target_link_libraries(fujinet_nio_pico2w PRIVATE
     pico_stdlib
     pico_unique_id
@@ -96,6 +100,7 @@ target_link_libraries(fujinet_nio_pico2w PRIVATE
     tinyusb_board
     pico_cyw43_arch_lwip_threadsafe_background
     pico_mbedtls
+    pico_flash
     hardware_flash
     hardware_watchdog
     yaml-cpp

@@ -14,11 +14,6 @@
 
 namespace fujinet::platform::pico {
 
-std::unique_ptr<fs::IFileSystem> create_flash_filesystem()
-{
-    return nullptr; // README, "Filesystem": LittleFS on the on-board flash.
-}
-
 // TNFS's byte channel uses the portable TCP state machine, never BSD select.
 class TnfsTcpChannel final : public io::Channel {
     TcpProtocol protocol_;
