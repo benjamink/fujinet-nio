@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.21)
+project(pico_raw_socket_tests LANGUAGES CXX)
+enable_testing()
+add_executable(pico-raw-socket-tests test_raw_sockets.cpp)
+target_compile_features(pico-raw-socket-tests PRIVATE cxx_std_20)
+target_include_directories(pico-raw-socket-tests PRIVATE fakes .. ../../include)
+target_compile_options(pico-raw-socket-tests PRIVATE -Wall -Wextra -Werror)
+add_test(NAME pico-raw-socket-tests COMMAND pico-raw-socket-tests)

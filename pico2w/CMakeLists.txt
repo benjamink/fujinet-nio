@@ -47,7 +47,7 @@ add_subdirectory(${NIO}/third_party/yaml-cpp yaml-cpp EXCLUDE_FROM_ALL)
 # or must not take (each exclusion is listed, with its reason, in the README).
 file(GLOB_RECURSE NIO_LIB_SOURCES CONFIGURE_DEPENDS ${NIO}/src/lib/*.cpp)
 list(FILTER NIO_LIB_SOURCES EXCLUDE REGEX "/src/lib/(build_profile|visor_usb|hotsync)/")
-list(FILTER NIO_LIB_SOURCES EXCLUDE REGEX "/src/lib/(diagnostic_hotsync_provider|diagnostic_uart_channel_provider|fs_stdio|udp_channel)\\.cpp$")
+list(FILTER NIO_LIB_SOURCES EXCLUDE REGEX "/src/lib/(diagnostic_hotsync_provider|diagnostic_uart_channel_provider|fs_stdio)\\.cpp$")
 
 file(GLOB NIO_PICO_PLATFORM_SOURCES CONFIGURE_DEPENDS ${NIO}/src/platform/pico/*.cpp)
 # Portable newlib code that lives under posix/ today (stdio logging, <ctime> time
