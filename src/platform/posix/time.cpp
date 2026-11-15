@@ -79,7 +79,7 @@ static bool gmtime_utc(std::uint64_t unix_seconds, tm& out_tm)
     }
 #else
     // Best-effort fallback if gmtime_r is unavailable.
-    tm* p = std::gmtime(&t);
+    struct tm* p = std::gmtime(&t); // "struct": the local `tm tm` hides the type
     if (!p) return false;
     tm = *p;
 #endif
@@ -114,7 +114,7 @@ static bool localtime_from_unix(std::uint64_t unix_seconds, tm& out_tm)
         return false;
     }
 #else
-    tm* p = std::localtime(&t);
+    struct tm* p = std::localtime(&t); // "struct": the local `tm tm` hides the type
     if (!p) return false;
     tm = *p;
 #endif
@@ -205,7 +205,7 @@ bool get_local_time(std::uint64_t unix_seconds, const char* tz, LocalTime& out)
         return false;
     }
 #else
-    tm* p = std::localtime(&t);
+    struct tm* p = std::localtime(&t); // "struct": the local `tm tm` hides the type
     if (!p) return false;
     local_tm = *p;
 #endif
@@ -239,7 +239,7 @@ bool format_time_local_iso8601(std::uint64_t unix_seconds, const char* tz, char*
         return false;
     }
 #else
-    tm* p = std::localtime(&t);
+    struct tm* p = std::localtime(&t); // "struct": the local `tm tm` hides the type
     if (!p) return false;
     local_tm = *p;
 #endif

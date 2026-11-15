@@ -14,6 +14,8 @@ provides native PIO behavior tests and an RP2350B firmware build for later feasi
 The isolated [RP2350 Springboard bridge](../bridges/rp2350-springboard/README.md)
 serves a Handspring Visor Springboard module and carries its FujiBus packets to
 NIO over a [packet link](packet_link.md).
+The [Pico 2 W port](../pico2w/README.md) is a skeleton of NIO itself on an RP2350: the
+portable core links for the board, with sockets, TLS, filesystem and channel still stubbed.
 
 The optional [Visor USB Host profile](visor-usb-host.md) receives raw FujiBus
 packets through a POSIX-local libusb adapter; existing services remain unchanged.

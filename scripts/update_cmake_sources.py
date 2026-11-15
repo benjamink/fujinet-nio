@@ -95,6 +95,9 @@ def generate_posix_block(all_cpp):
         # Exclude ESP32 platform sources
         if "/platform/esp32/" in path:
             continue
+        # The Pico 2 W port is its own project (pico2w/CMakeLists.txt)
+        if "/platform/pico/" in path or path == "src/app/main_pico.cpp":
+            continue
         # Selected under if(FN_WITH_HOTSYNC) in the template
         if is_hotsync_selected(path):
             continue
@@ -119,7 +122,7 @@ def generate_posix_app_block(all_cpp):
     for path in all_cpp:
         if not path.startswith("src/app/"):
             continue
-        if path == "src/app/main_esp32.cpp":
+        if path in ("src/app/main_esp32.cpp", "src/app/main_pico.cpp"):
             continue
         # We already list main_posix.cpp in add_executable(), so skip it here
         if path == "src/app/main_posix.cpp":
@@ -156,7 +159,9 @@ def generate_esp32_block(all_cpp):
             continue
         if path == "src/app/main_posix.cpp":
             continue
-        if "/platform/posix/" in path:
+        if "/platform/posix/" in path or "/platform/pico/" in path:
+            continue
+        if path == "src/app/main_pico.cpp":
             continue
         if is_hotsync_selected(path):
             continue
