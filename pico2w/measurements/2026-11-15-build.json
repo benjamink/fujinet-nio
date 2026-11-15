@@ -1,6 +1,6 @@
 {
-  "flash_binary_bytes": 1102836,
-  "static_ram_bytes": 173288,
+  "flash_binary_bytes": 1153112,
+  "static_ram_bytes": 222312,
   "minimum_heap_reservation_bytes": 2048,
   "stack_reservation_bytes": 16384,
   "runtime_tls_heap_peak_bytes": null,
@@ -19,11 +19,11 @@
       "static_ram_bytes": 181
     },
     "NIO platform/app": {
-      "flash_bytes": 145553,
-      "static_ram_bytes": 65970
+      "flash_bytes": 195851,
+      "static_ram_bytes": 114994
     },
     "Pico SDK/TinyUSB": {
-      "flash_bytes": 29378,
+      "flash_bytes": 29374,
       "static_ram_bytes": 14103
     },
     "libstdc++": {
@@ -39,7 +39,7 @@
       "static_ram_bytes": 8776
     },
     "newlib/libgcc/other archives": {
-      "flash_bytes": 80664,
+      "flash_bytes": 80648,
       "static_ram_bytes": 8159
     },
     "other": {
@@ -52,7 +52,8 @@
     }
   },
   "note": "Static lower bound only; no hardware or runtime peak measurements.",
-  "firmware_commit": "6745908b6291298e93a7def50b6279a6a6ead048",
+  "firmware_base_commit": "8326751f6573de26a6a92750597468588093df26",
+  "source_state": "Final hardening changes committed alongside this measurement record",
   "environment": {
     "sdk": "2.3.1",
     "compiler": "arm-none-eabi GCC 16.2",

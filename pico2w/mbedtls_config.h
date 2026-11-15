@@ -5,6 +5,7 @@
 // footprint (README, "Memory"). Entropy uses the RP2350 TRNG through pico_rand;
 // certificate dates use the explicit Pico clock. Hardware SHA is not enabled.
 #define MBEDTLS_ALLOW_PRIVATE_ACCESS // SDK ALTCP mbedTLS 3 adapter accesses record state
+#include "../src/platform/pico/detail/network_limits.h"
 #define MBEDTLS_HAVE_ASM
 #define MBEDTLS_HAVE_TIME
 #define MBEDTLS_HAVE_TIME_DATE
@@ -45,7 +46,7 @@
 #define MBEDTLS_SSL_CLI_C
 #define MBEDTLS_SSL_PROTO_TLS1_2
 #define MBEDTLS_SSL_SERVER_NAME_INDICATION
-#define MBEDTLS_SSL_MAX_CONTENT_LEN 16384
+#define MBEDTLS_SSL_MAX_CONTENT_LEN FN_PICO_TLS_RECORD_BYTES
 #define MBEDTLS_ERROR_C
 
 #endif

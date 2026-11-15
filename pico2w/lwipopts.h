@@ -4,12 +4,14 @@
 // lwIP in NO_SYS mode with cyw43_arch_lwip_threadsafe_background: raw API only
 // (no BSD sockets). Sizes follow pico-examples' pico_w lwipopts and are the
 // first thing to tune once real TCP/UDP traffic runs (README, "Memory").
+#include "../src/platform/pico/detail/network_limits.h"
+
 #define NO_SYS                      1
 #define LWIP_SOCKET                 0
 #define LWIP_NETCONN                0
 #define MEM_LIBC_MALLOC             0
 #define MEM_ALIGNMENT               4
-#define MEM_SIZE                    (24 * 1024) // queued TCP writes + TLS handshake headroom
+#define MEM_SIZE                    (128 * 1024) // ALTCP installs this bounded heap as the mbedTLS allocator
 #define MEMP_NUM_TCP_SEG            32
 #define MEMP_NUM_TCP_PCB            8
 #define MEMP_NUM_TCP_PCB_LISTEN     2
@@ -22,7 +24,7 @@
 #define LWIP_ICMP                   1
 #define LWIP_RAW                    1
 #define TCP_MSS                     1460
-#define TCP_WND                     4096 // must fit RawTcp receive ring including coalesced pbufs
+#define TCP_WND                     FN_PICO_TCP_WINDOW_BYTES // full encrypted TLS record; RawTcp ring matches
 #define TCP_SND_BUF                 (2 * TCP_MSS)
 #define TCP_SND_QUEUELEN            ((4 * (TCP_SND_BUF) + (TCP_MSS - 1)) / (TCP_MSS))
 #define LWIP_NETIF_STATUS_CALLBACK  1

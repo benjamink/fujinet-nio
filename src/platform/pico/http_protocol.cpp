@@ -21,6 +21,8 @@ class HttpProtocol final : public io::INetworkProtocol {
     std::string upload_chunk_;
     std::size_t chunk_sent_=0;
     bool unknown_upload_=false, upload_committed_=false;
+    bool commit_acknowledged_=false;
+    std::uint32_t commit_offset_=0;
     std::array<std::uint8_t,512> pending_{};
     std::size_t pending_at_=0,pending_size_=0;
     bool wire_eof_=false,headers_handled_=false;
@@ -60,7 +62,7 @@ class HttpProtocol final : public io::INetworkProtocol {
         const bool cross_origin=url_.tls!=target.tls || url_.host!=target.host || url_.port!=target.port;
         request_.headers.erase(std::remove_if(request_.headers.begin(),request_.headers.end(),[&](const auto& header) {
             const auto key=detail::http_request_lower(header.first);
-            return (cross_origin && (key=="authorization" || key=="cookie")) || (to_get && key=="content-length");
+            return (cross_origin && (key=="authorization" || key=="proxy-authorization" || key=="cookie")) || (to_get && key=="content-length");
         }),request_.headers.end());
         if(to_get) { request_.method=1; request_.bodyLenHint=0; request_.flags&=~4; }
         request_.url=next; stream_->close();
@@ -85,6 +87,10 @@ public:
     void poll() override {
         if(!stream_ || error_!=StatusCode::Ok || parser_.done()) return;
         if(!body_.free()) { progress_=now_(); return; }
+        // A caller may pause between upload blocks. Only server/network waiting
+        // consumes the inactivity budget; bounded client-side upload state does not.
+        if(!parser_.headers_ready() && headers_sent_==request_headers_.size() && upload_chunk_.empty() &&
+           ((unknown_upload_ && !upload_committed_) || (!unknown_upload_ && body_write_<request_.bodyLenHint))) progress_=now_();
         stream_->poll();
         if(headers_sent_<request_headers_.size()) {
             std::uint16_t sent=0;
@@ -131,8 +137,10 @@ public:
     StatusCode write_body(std::uint32_t offset,const std::uint8_t* data,std::size_t length,std::uint16_t& written) override {
         written=0;
         if(length && !data) return StatusCode::InvalidRequest;
+        if(commit_acknowledged_ && !length && offset==commit_offset_) return StatusCode::Ok;
         if(offset==last_write_offset_ && !last_write_.empty() && length>=last_write_.size() &&
            std::memcmp(data,last_write_.data(),last_write_.size())==0) { written=last_write_.size(); return StatusCode::Ok; }
+        if(request_.method!=2 && request_.method!=3) return StatusCode::Unsupported;
         if(offset!=body_write_ || (!unknown_upload_ && length>request_.bodyLenHint-body_write_)) return StatusCode::InvalidRequest;
         if(error_!=StatusCode::Ok) return error_;
         if(!stream_) return StatusCode::NotReady;
@@ -142,7 +150,7 @@ public:
         if(unknown_upload_) {
             if(upload_committed_) return length ? StatusCode::InvalidRequest : StatusCode::Ok;
             if(!upload_chunk_.empty()) return StatusCode::NotReady;
-            if(!length) { upload_chunk_="0\r\n\r\n"; upload_committed_=true; return StatusCode::Ok; }
+            if(!length) { upload_chunk_="0\r\n\r\n"; upload_committed_=true; commit_acknowledged_=true; commit_offset_=offset; return StatusCode::Ok; }
             const auto n=std::min<std::size_t>(length,4096);
             if(body_write_>UINT32_MAX-n) return StatusCode::InvalidRequest;
             char size[16]; std::snprintf(size,sizeof(size),"%zx\r\n",n);
@@ -191,7 +199,7 @@ public:
         stream_.reset(); request_={}; request_headers_.clear();
         parser_.reset(); body_.clear(); last_read_.clear(); last_write_.clear();
         pending_at_=pending_size_=headers_sent_=0; body_read_=body_write_=wire_read_=wire_write_=0;
-        upload_chunk_.clear(); chunk_sent_=0; unknown_upload_=upload_committed_=false;
+        upload_chunk_.clear(); chunk_sent_=0; unknown_upload_=upload_committed_=false; commit_acknowledged_=false; commit_offset_=0;
         last_read_offset_=last_write_offset_=0; last_eof_=false; redirects_=0;
         error_=StatusCode::Ok; headers_handled_=wire_eof_=false;
     }

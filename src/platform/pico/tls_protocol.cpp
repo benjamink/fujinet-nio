@@ -87,13 +87,13 @@ public:
         auto* ssl=static_cast<mbedtls_ssl_context*>(altcp_tls_context(pcb_));
         if(!ssl || mbedtls_ssl_set_hostname(ssl,host.c_str())!=0) { release(); return StatusCode::IOError; }
         altcp_arg(pcb_,this); altcp_recv(pcb_,received); altcp_err(pcb_,failed);
-        start_=to_ms_since_boot(get_absolute_time());
+        start_=time_us_64()/1000;
         if(altcp_connect(pcb_,&ip,number,connected)!=ERR_OK) { release(); return StatusCode::IOError; }
         return StatusCode::Ok;
     }
     void poll() override {
         Lock lock;
-        if(pcb_ && !connected_ && to_ms_since_boot(get_absolute_time())-start_>=15000) error_=StatusCode::Timeout;
+        if(pcb_ && !connected_ && time_us_64()/1000-start_>=15000) error_=StatusCode::Timeout;
         if(error_!=StatusCode::Ok) release();
     }
     StatusCode write_body(std::uint32_t offset,const std::uint8_t* data,std::size_t length,std::uint16_t& written) override {

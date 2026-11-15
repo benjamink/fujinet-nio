@@ -1,6 +1,7 @@
 #pragma once
 #include "fake_lwip.h"
 using absolute_time_t = std::uint64_t;
+inline std::uint64_t time_us_64() { return fake::now*1000; }
 inline absolute_time_t get_absolute_time() { return fake::now; }
 inline std::uint64_t to_ms_since_boot(absolute_time_t t) { return t; }
 inline absolute_time_t make_timeout_time_ms(std::uint32_t n) { return fake::now + n; }

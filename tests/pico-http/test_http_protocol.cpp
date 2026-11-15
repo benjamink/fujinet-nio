@@ -10,7 +10,7 @@ namespace {
 struct Exchange {
     std::string response,sent,url;
     std::size_t response_at=0,upload=0;
-    bool eof=true,closed=false;
+    bool eof=true,closed=false,blocked=false;
 };
 class Stream final : public io::INetworkProtocol {
     std::shared_ptr<Exchange> e_;
@@ -18,6 +18,7 @@ public:
     explicit Stream(std::shared_ptr<Exchange> e):e_(std::move(e)) {}
     StatusCode open(const io::NetworkOpenRequest& r) override { e_->url=r.url; return StatusCode::Ok; }
     StatusCode write_body(std::uint32_t o,const std::uint8_t* p,std::size_t n,std::uint16_t& w) override {
+        if(e_->blocked) { w=0; return StatusCode::NotReady; }
         REQUIRE(o==e_->sent.size()); w=std::min<std::size_t>(n,17); e_->sent.append(reinterpret_cast<const char*>(p),w); return StatusCode::Ok;
     }
     StatusCode read_body(std::uint32_t o,std::uint8_t* p,std::size_t n,std::uint16_t& r,bool& eof,bool& more) override {
@@ -81,9 +82,9 @@ TEST_CASE("Pico HTTP POST uploads partial writes with replay and bounded offsets
 TEST_CASE("Pico HTTP redirects strip cross-origin credentials and bound loops") {
     Harness h;h.add("HTTP/1.1 302 Found\r\nLocation: http://other.example/final\r\nContent-Length: 0\r\n\r\n");
     auto target=h.add("HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx");
-    auto protocol=h.make();io::NetworkOpenRequest r;r.method=1;r.flags=2;r.url="http://example.org/";r.headers={{"Authorization","secret"},{"Cookie","session"}};
+    auto protocol=h.make();io::NetworkOpenRequest r;r.method=1;r.flags=2;r.url="http://example.org/";r.headers={{"Authorization","secret"},{"Cookie","session"},{"Proxy-Authorization","proxysecret"}};
     REQUIRE(protocol->open(r)==StatusCode::Ok);CHECK(drain(*protocol)=="x");CHECK(h.created==2);
-    CHECK(target->sent.find("secret")==std::string::npos);CHECK(target->sent.find("session")==std::string::npos);
+    CHECK(target->sent.find("secret")==std::string::npos);CHECK(target->sent.find("session")==std::string::npos);CHECK(target->sent.find("proxysecret")==std::string::npos);
     CHECK(target->url=="tcp://other.example:80");
 }
 TEST_CASE("Pico HTTP body queue backpressure preserves large responses") {
@@ -127,6 +128,47 @@ TEST_CASE("Pico HTTP unknown-length upload uses bounded chunks and zero-length c
     StatusCode commit=StatusCode::NotReady;
     for(unsigned i=0;i<100 && commit==StatusCode::NotReady;++i) commit=protocol->write_body(3,nullptr,0,written);
     REQUIRE(commit==StatusCode::Ok);CHECK(drain(*protocol)=="ok");
+    CHECK(protocol->write_body(3,nullptr,0,written)==StatusCode::Ok);
     CHECK(e->sent.find("Transfer-Encoding: chunked\r\n")!=std::string::npos);
     CHECK(e->sent.substr(e->sent.size()-13)=="3\r\nabc\r\n0\r\n\r\n");
+}
+
+TEST_CASE("Pico HTTP upload pauses do not expire and POST redirect only acknowledges old blocks") {
+    Harness h;h.add("HTTP/1.1 303 See Other\r\nLocation: /done\r\nContent-Length: 0\r\n\r\n",3);
+    auto target=h.add("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+    auto protocol=h.make();io::NetworkOpenRequest r;r.method=2;r.flags=2;r.bodyLenHint=3;r.url="http://example.org/post";
+    REQUIRE(protocol->open(r)==StatusCode::Ok);
+    for(unsigned i=0;i<30;++i) protocol->poll();
+    h.now=50000;protocol->poll();io::NetworkInfo info;CHECK(protocol->info(info)==StatusCode::NotReady);
+    const std::uint8_t bytes[]{'a','b','c'};std::uint16_t n=0;
+    REQUIRE(protocol->write_body(0,bytes,3,n)==StatusCode::Ok);CHECK(n==3);CHECK(drain(*protocol)=="ok");
+    CHECK(target->sent.rfind("GET /done HTTP/1.1",0)==0);
+    CHECK(protocol->write_body(0,bytes,3,n)==StatusCode::Ok);CHECK(n==3);
+    const std::uint8_t different[]{'x','y','z'};
+    CHECK(protocol->write_body(0,different,3,n)==StatusCode::Unsupported);CHECK(n==0);
+    CHECK(protocol->write_body(3,bytes,3,n)==StatusCode::Unsupported);CHECK(n==0);
+}
+
+TEST_CASE("Pico HTTP incomplete uploads still time out stalled network writes") {
+    for(bool chunk : {false,true}) {
+        Harness h; auto e=h.add("",100); e->eof=false;
+        auto protocol=h.make(); io::NetworkOpenRequest r; r.method=2; r.url="http://example.org/post"; r.flags=4;
+        REQUIRE(protocol->open(r)==StatusCode::Ok);
+        if(chunk) {
+            for(unsigned i=0;i<100;++i) protocol->poll();
+            std::uint16_t n=0; const std::uint8_t data='x';
+            REQUIRE(protocol->write_body(0,&data,1,n)==StatusCode::Ok); REQUIRE(n==1);
+        }
+        e->blocked=true; h.now=16000; protocol->poll();
+        io::NetworkInfo info; CHECK(protocol->info(info)==StatusCode::Timeout);
+    }
+}
+
+TEST_CASE("Pico HTTP early response body stalls time out with upload incomplete") {
+    Harness h; auto e=h.add("HTTP/1.1 413 Too Large\r\nContent-Length: 10\r\n\r\nx"); e->eof=false;
+    auto protocol=h.make(); io::NetworkOpenRequest r; r.method=2; r.url="http://example.org/post"; r.bodyLenHint=100;
+    REQUIRE(protocol->open(r)==StatusCode::Ok);
+    for(unsigned i=0;i<100;++i) protocol->poll();
+    io::NetworkInfo info; REQUIRE(protocol->info(info)==StatusCode::Ok); CHECK(info.httpStatus==413);
+    h.now=16000; protocol->poll(); CHECK(protocol->info(info)==StatusCode::Timeout);
 }

@@ -18,3 +18,19 @@ target_include_directories(pico-tls-tests PRIVATE fakes .. ../../include)
 target_compile_definitions(pico-tls-tests PRIVATE NIO_ROOT="${CMAKE_CURRENT_LIST_DIR}/../..")
 target_link_libraries(pico-tls-tests PRIVATE pico-native-mbedtls)
 add_test(NAME pico-tls-tests COMMAND pico-tls-tests)
+
+# Exercise the allocator that firmware ALTCP actually installs, rather than libc.
+set(LWIP "${PICO_SDK_PATH}/lib/lwip/src")
+foreach(mode current old)
+    add_executable(pico-tls-allocator-${mode} allocator/test_allocator.c
+        ${LWIP}/core/mem.c ${LWIP}/core/stats.c
+        ${LWIP}/apps/altcp_tls/altcp_tls_mbedtls_mem.c)
+    target_include_directories(pico-tls-allocator-${mode} BEFORE PRIVATE
+        allocator ${LWIP}/include ${LWIP}/apps/altcp_tls)
+    target_compile_definitions(pico-tls-allocator-${mode} PRIVATE NIO_ROOT="${CMAKE_CURRENT_LIST_DIR}/../..")
+    if(mode STREQUAL "old")
+        target_compile_definitions(pico-tls-allocator-${mode} PRIVATE TEST_OLD_HEAP=1)
+    endif()
+    target_link_libraries(pico-tls-allocator-${mode} PRIVATE pico-native-mbedtls)
+    add_test(NAME pico-tls-allocator-${mode} COMMAND pico-tls-allocator-${mode})
+endforeach()

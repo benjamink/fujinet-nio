@@ -24,7 +24,7 @@ The default build type is `MinSizeRel` (`-Os`). The result is
 
 ## Size and acceptance
 
-The final build uses **1102836 bytes flash** and **173288 bytes static RAM**.
+The current build uses **1153056 bytes flash** and **328816 bytes static RAM**.
 Core 0 reserves a 16 KiB stack. This is a build measurement, not a runtime peak:
 core objects, protocol objects, TLS records/certificates and queues also allocate
 from the heap. A live TLS connection's peak heap and stack usage remains unknown.
@@ -52,14 +52,17 @@ See the ordered measurements below for exact baselines and component totals.
 
 Raw lwIP (`NO_SYS=1`) avoids a scheduler and BSD socket emulation. Foreground
 calls acquire the CYW43 lwIP lock; callbacks run under the background dispatcher's
-lock. Eight TCP handles each hold a 4096-byte receive ring; four UDP handles each
+lock. Four TCP handles each hold a 20480-byte receive ring; four UDP handles each
 hold four 1472-byte datagrams. Stale handles never alias reused slots. TCP advances
-its receive window only when bytes are consumed; `TCP_WND=4096` prevents lwIP from
-delivering a coalesced packet larger than the ring. Writes accept only available
+its receive window only when bytes are consumed. `TCP_WND=20480` holds a full
+16 KiB TLS record plus up to 2053 bytes of expansion/header: SDK ALTCP returns
+application-record receive credit only after decoding the entire record. The raw
+ring matches that window so a coalesced packet always fits. Four raw handles
+bound static RAM; a listener consumes one, leaving at most three accepted children. Writes accept only available
 send-buffer space. Oversized UDP packets are dropped; short reads discard the
 remaining packet. IPv4 is supported; IPv6 is not enabled.
 
-The lwIP heap is 24 KiB, with 8 active TCP PCBs, 2 listeners, and 32 queued TCP
+The lwIP heap is 128 KiB, with 8 active TCP PCBs, 2 listeners, and 32 queued TCP
 segments; send buffers are two MSS per connection. These are bounded starting
 budgets for runtime measurement, not throughput claims. Four stable DNS request
 slots survive the 5-second foreground timeout until their late callbacks finish.
@@ -113,6 +116,7 @@ so use `arm-none-eabi-size -A` and the linker map instead.
 | 2: USB and console | 995432 | 163152 | 2048 / 2048 |
 | 3: LittleFS | 1016616 | 164124 | 2048 / 2048 |
 | 4: TLS and HTTP/HTTPS | 1102836 | 173288 | 2048 / 16384 |
+| Final hardening (TLS window and lifecycle fixes) | 1153112 | 222312 | 2048 / 16384 |
 
 Map component totals (flash/static RAM input bytes; excludes linker alignment):
 
@@ -238,7 +242,8 @@ and response metadata are bounded to 8 KiB, URLs to 2048 bytes, individual heade
 lines to 2048 bytes, chunk-size lines to 128 bytes, and header counts to 64.
 Known request bodies use `bodyLenHint` as Content-Length. Existing flag bit 2
 with zero length enables chunked upload through a bounded 4096-byte chunk buffer;
-a zero-length write commits the upload. Caller-supplied Transfer-Encoding and
+a zero-length write commits the upload; its successful acknowledgement remains
+replayable after response headers arrive. Caller-supplied Transfer-Encoding and
 Expect headers are rejected. Reads/writes are sequential with replay of the last
 accepted block; capability methods advertise the sequential requirement.
 
@@ -248,12 +253,19 @@ Conflicting framing, invalid chunk boundaries, malformed headers and early EOF
 produce errors. Bodies stream through an 8 KiB queue; response sizes over the
 32-bit stream-offset range are rejected. Backpressure pauses transport reads.
 There is a 15-second inactivity deadline while room exists to receive data;
-a full application queue resets that budget while the client is paused.
+a full application queue resets that budget while the client is paused. Waiting
+for the caller to provide another upload block also pauses this deadline, but
+only after request headers and any queued chunk have been sent and before final
+response headers arrive. Stalled network
+writes still time out; an idle caller can retain bounded connection state until
+explicit close.
 Only allowlisted response headers appear in NetworkInfo.
 
 With follow_redirects, at most three redirects are followed. Cross-origin
-redirects strip Authorization/Cookie; HTTPS-to-HTTP downgrade is rejected.
-303 and POST 301/302 switch to GET. A redirect requiring replay of an uploaded
+redirects strip Authorization, Proxy-Authorization and Cookie; HTTPS-to-HTTP downgrade is rejected.
+Relative redirects normalize dot segments and preserve the query on fragment-only
+references. 303 and POST 301/302 switch to GET; the last successful upload block
+remains replayable, but the resulting GET rejects new upload bytes. A redirect requiring replay of an uploaded
 body returns Unsupported instead of retaining an unbounded upload. Compression
 is not negotiated or decompressed. These limits are explicit API errors, not
 silent truncation.
@@ -269,7 +281,7 @@ Source the workspace environment first. Configure/build/ctest these independent
 native projects outside the repository:
 
 - `tests/pico` → `/tmp/nio-pico-raw-tests`: raw callback and actual LittleFS tests.
-- `tests/pico-http` → `/tmp/nio-pico-http-tests`: 10 cases / 4519 assertions covering
+- `tests/pico-http` → `/tmp/nio-pico-http-tests`: 14 cases / 4851 assertions covering
   parser framing, malformed responses, methods/uploads/replay, redirects,
   timeout and a 20 KiB response across queue backpressure.
 - `tests/pico-tls` → `/tmp/nio-pico-tls-tests`: 3 cases / 1342 assertions using the
@@ -277,7 +289,8 @@ native projects outside the repository:
   future/expired certificates, entropy boundaries and Pico clock progression.
 - `tests/pico-tls-adapter` → `/tmp/nio-pico-tls-adapter-tests`: three builds test
   default/test-only/additive trust selection, hostname setup, fail-closed
-  verification/time, callback detachment, partial writes, limits and timeout.
+  verification/time, callback detachment, partial writes, limits and timeout,
+  plus receive credit/refusal/replay/EOF/error: 5 cases / 58 assertions per build.
 
 For example, `cmake -S tests/pico-http -B /tmp/nio-pico-http-tests`, then
 `cmake --build /tmp/nio-pico-http-tests -j8` and
@@ -300,11 +313,11 @@ It parses the ARM ELF as data; it never runs it. Component totals count initiali
 RAM in both flash and RAM, exclude discarded sections and omit linker padding.
 The binary and allocated ELF sections supply the authoritative physical totals.
 The minimum heap reservation is not a cap on heap usage. The final reproducible
-[build-only record](measurements/2026-11-15-build.json) identifies the firmware commit
+[build-only record](measurements/2026-11-15-build.json) identifies the base commit and changes committed alongside it,
 and explicitly leaves runtime peaks null. Two fixture tests validate the report's
-map/ELF accounting, and the tool reproduces 1102836 flash / 173288 static RAM bytes.
+map/ELF accounting, and the tool reproduces 1153112 flash / 222312 static RAM bytes.
 
-Final host validation: all six external POSIX CTest checks pass (879 native cases).
+Final host validation: all six external POSIX CTest checks pass (881 native cases).
 The existing subprocess disk test timed out in two runs during compilation;
 its isolated 149-assertion retry and final full run with an idle toolchain passed.
 The ESP32 bench S3 build passed after the separate prerequisite switch fix.
@@ -317,3 +330,30 @@ restored byte-for-byte. No submodule pins were changed and nothing was pushed.
 - [ ] Physical USB, Wi-Fi, flash and TLS acceptance (no board attached, confirmed by maintainer).
 - [ ] Measure peak heap and stack with one live TLS connection; decide runtime fit in 520 KiB.
 - [ ] Optional UART transport, scan/BSSID selection, SNTP, memory low-water marks and core-1 task.
+
+Final hardening verification adds full-window raw receive/backpressure, FIFO accept
+ordering and handle exhaustion, deadlines across the 32-bit millisecond boundary,
+16 KiB TLS receive/credit/refusal/replay and queued data before EOF/reset, upload
+commit replay, redirect credentials/paths, and stalled upload network writes.
+USB mount/unmount and CDC line-state callbacks invalidate session state even if
+multiple transitions occur within one task pump; queue-level edge tests cover
+this invariant. Actual USB reset/reconnect timing still requires hardware.
+The TLS window fix increases static RAM by 49024 bytes over stage 4; runtime heap
+and stack peaks remain unmeasured, so this is not a runtime-fit claim.
+
+### TLS pool sizing prerequisite (2026-11-15)
+
+SDK ALTCP installs lwIP's allocator for mbedTLS, so the old 24 KiB pool could
+not allocate even one pair of default 16 KiB TLS record buffers. The bounded
+pool is now 128 KiB. `tests/pico-tls` includes actual SDK `mem.c` and ALTCP
+allocator tests with the firmware mbedTLS configuration: parsing ISRG Root X1,
+allocating adapter state, and setting up two contexts succeeds; an old-pool
+negative control fails as expected. All allocations are freed back to zero.
+This is host setup evidence, not a complete handshake, fragmentation margin,
+concurrent socket traffic budget, or physical peak measurement.
+
+Reproduce: source the workspace environment, then `cmake -S tests/pico-tls
+-B /tmp/nio-pico-tls-tests`, `cmake --build /tmp/nio-pico-tls-tests -j8`, and
+`ctest --test-dir /tmp/nio-pico-tls-tests --output-on-failure` (3/3 passed).
+The separately linked [TLS pool measurement](measurements/2026-11-15-tls-pool.json)
+preserves the earlier measurements and includes the enlarged static lwIP pool.

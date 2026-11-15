@@ -2,9 +2,7 @@
 
 #include <ctime>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include "pico/time.h"
 #include "pico/cyw43_arch.h"
 
@@ -31,16 +29,9 @@ static bool gmtime_utc(std::uint64_t unix_seconds, tm& out_tm)
     const std::time_t t = static_cast<std::time_t>(unix_seconds);
     tm tm{};
 
-#if defined(__unix__) || defined(__APPLE__)
     if (::gmtime_r(&t, &tm) == nullptr) {
         return false;
     }
-#else
-    // Best-effort fallback if gmtime_r is unavailable.
-    struct tm* p = std::gmtime(&t); // "struct": the local `tm tm` hides the type
-    if (!p) return false;
-    tm = *p;
-#endif
 
     out_tm = tm;
     return true;
@@ -67,15 +58,9 @@ static bool localtime_from_unix(std::uint64_t unix_seconds, tm& out_tm)
     const std::time_t t = static_cast<std::time_t>(unix_seconds);
     tm tm{};
 
-#if defined(__unix__) || defined(__APPLE__)
     if (::localtime_r(&t, &tm) == nullptr) {
         return false;
     }
-#else
-    struct tm* p = std::localtime(&t); // "struct": the local `tm tm` hides the type
-    if (!p) return false;
-    tm = *p;
-#endif
 
     out_tm = tm;
     return true;
@@ -125,24 +110,18 @@ bool validate_timezone(const char* posix_tz)
     if (!posix_tz || posix_tz[0] == '\0') {
         return false;
     }
-    
+
     // Try to apply the timezone temporarily and see if it works
     // by checking if localtime produces valid results
     ScopedTimezone scoped_tz(posix_tz);
-    
+
     std::time_t now = static_cast<std::time_t>(unix_time_seconds());
     tm local_tm{};
-    
-#if defined(__unix__) || defined(__APPLE__)
+
     if (::localtime_r(&now, &local_tm) == nullptr) {
         return false;
     }
-#else
-    tm* p = std::localtime(&now);
-    if (!p) return false;
-    local_tm = *p;
-#endif
-    
+
     // If we got here, the timezone was accepted
     return true;
 }
@@ -152,22 +131,16 @@ bool get_local_time(std::uint64_t unix_seconds, const char* tz, LocalTime& out)
     if (!tz || tz[0] == '\0') {
         return false;
     }
-    
+
     ScopedTimezone scoped_tz(tz);
-    
+
     const std::time_t t = static_cast<std::time_t>(unix_seconds);
     tm local_tm{};
-    
-#if defined(__unix__) || defined(__APPLE__)
+
     if (::localtime_r(&t, &local_tm) == nullptr) {
         return false;
     }
-#else
-    struct tm* p = std::localtime(&t); // "struct": the local `tm tm` hides the type
-    if (!p) return false;
-    local_tm = *p;
-#endif
-    
+
     out.year = local_tm.tm_year + 1900;
     out.month = local_tm.tm_mon + 1;
     out.day = local_tm.tm_mday;
@@ -177,7 +150,7 @@ bool get_local_time(std::uint64_t unix_seconds, const char* tz, LocalTime& out)
     out.weekday = local_tm.tm_wday;
     out.yearday = local_tm.tm_yday;
     out.is_dst = local_tm.tm_isdst > 0;
-    
+
     return true;
 }
 
@@ -186,22 +159,16 @@ bool format_time_local_iso8601(std::uint64_t unix_seconds, const char* tz, char*
     if (!out || out_len == 0 || unix_seconds == 0 || !tz || tz[0] == '\0') {
         return false;
     }
-    
+
     ScopedTimezone scoped_tz(tz);
-    
+
     const std::time_t t = static_cast<std::time_t>(unix_seconds);
     tm local_tm{};
-    
-#if defined(__unix__) || defined(__APPLE__)
+
     if (::localtime_r(&t, &local_tm) == nullptr) {
         return false;
     }
-#else
-    struct tm* p = std::localtime(&t); // "struct": the local `tm tm` hides the type
-    if (!p) return false;
-    local_tm = *p;
-#endif
-    
+
     // Format: YYYY-MM-DDTHH:MM:SS+HHMM
     return ::strftime(out, out_len, "%FT%T%z", &local_tm) != 0;
 }

@@ -67,15 +67,46 @@ inline bool build_http_request(const io::NetworkOpenRequest& req,HttpUrl& url,st
     else if(req.bodyLenHint || req.method==2 || req.method==3) headers+="Content-Length: "+std::to_string(req.bodyLenHint)+"\r\n";
     headers+="\r\n"; return headers.size()<=8192;
 }
+inline std::string remove_dot_segments(std::string input) {
+    std::string output;
+    auto pop=[&] { const auto slash=output.rfind('/'); output.resize(slash==std::string::npos ? 0 : slash); };
+    while(!input.empty()) {
+        if(input.rfind("../",0)==0) input.erase(0,3);
+        else if(input.rfind("./",0)==0) input.erase(0,2);
+        else if(input.rfind("/./",0)==0) input.erase(0,2);
+        else if(input=="/.") input="/";
+        else if(input.rfind("/../",0)==0) { input.erase(0,3); pop(); }
+        else if(input=="/..") { input="/"; pop(); }
+        else if(input=="." || input=="..") input.clear();
+        else {
+            const auto end=input.find('/',input.front()=='/' ? 1 : 0);
+            if(end==std::string::npos) { output+=input; input.clear(); }
+            else { output+=input.substr(0,end); input.erase(0,end); }
+        }
+    }
+    return output.empty() ? "/" : output;
+}
 inline std::string redirect_url(const HttpUrl& base,const std::string& location) {
-    if(location.rfind("http://",0)==0 || location.rfind("https://",0)==0) return location;
     const std::string scheme=base.tls ? "https:" : "http:";
-    if(location.rfind("//",0)==0) return scheme+location;
     const auto origin=scheme+"//"+base.authority;
-    if(location.empty()) return {};
-    if(location.front()=='/') return origin+location;
-    if(location.front()=='?') return origin+base.target.substr(0,base.target.find('?'))+location;
-    auto path=base.target.substr(0,base.target.find('?'));
-    return origin+path.substr(0,path.rfind('/')+1)+location;
+    std::string resolved;
+    if(location.rfind("http://",0)==0 || location.rfind("https://",0)==0) resolved=location;
+    else if(location.rfind("//",0)==0) resolved=scheme+location;
+    else if(location.empty() || location.front()=='#') resolved=origin+base.target+location;
+    else if(location.front()=='/') resolved=origin+location;
+    else if(location.front()=='?') resolved=origin+base.target.substr(0,base.target.find('?'))+location;
+    else {
+        // A colon in the first segment denotes an unsupported URI scheme.
+        const auto colon=location.find(':'); const auto slash=location.find('/');
+        if(colon!=std::string::npos && (slash==std::string::npos || colon<slash)) return {};
+        const auto path=base.target.substr(0,base.target.find('?'));
+        resolved=origin+path.substr(0,path.rfind('/')+1)+location;
+    }
+    HttpUrl parsed;
+    if(!parse_http_url(resolved,parsed)) return {};
+    const auto query=parsed.target.find('?');
+    const auto normalized=remove_dot_segments(parsed.target.substr(0,query));
+    return std::string(parsed.tls ? "https://" : "http://")+parsed.authority+normalized+
+           (query==std::string::npos ? "" : parsed.target.substr(query));
 }
 }

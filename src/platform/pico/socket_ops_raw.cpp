@@ -3,6 +3,8 @@
 #include "fujinet/platform/tcp_socket_ops.h"
 #include "fujinet/platform/udp_socket_ops.h"
 #include "detail/socket_state.h"
+#include "detail/network_limits.h"
+static_assert(FN_PICO_TCP_WINDOW_BYTES >= FN_PICO_TLS_RECORD_BYTES + FN_PICO_TLS_WIRE_OVERHEAD);
 #include "pico/cyw43_arch.h"
 #include "pico/time.h"
 #include "lwip/tcp.h"
@@ -94,12 +96,13 @@ int resolve(const char* host, const char* port, int type, AddrInfo** out) {
 }
 struct TcpState {
     tcp_pcb* pcb = nullptr;
-    ByteRing<4096> rx;
+    ByteRing<FN_PICO_TCP_WINDOW_BYTES> rx;
     bool connected = false, eof = false, listening = false;
     int error = 0;
     std::array<int, 4> accepted{{-1, -1, -1, -1}};
+    unsigned accept_head=0, accept_count=0;
 };
-HandleTable<TcpState, 8> tcp_states;
+HandleTable<TcpState, FN_PICO_RAW_TCP_HANDLES> tcp_states;
 void tcp_error(void* arg, err_t e) {
     auto& s = *static_cast<TcpState*>(arg);
     s.pcb = nullptr; s.error = native_error(e); s.connected = false;
@@ -123,11 +126,15 @@ err_t tcp_connected(void* arg, tcp_pcb*, err_t e) {
 }
 err_t on_tcp_accept(void* arg, tcp_pcb* pcb, err_t e) {
     auto& listener = *static_cast<TcpState*>(arg);
-    for (auto& pending : listener.accepted) if (pending < 0 && e == ERR_OK) {
+    if (listener.accept_count < listener.accepted.size() && e == ERR_OK) {
         const int fd = tcp_states.allocate();
-        if (fd < 0) break;
-        auto& s = *tcp_states.get(fd); s.pcb = pcb; s.connected = true;
-        setup(s); pending = fd; return ERR_OK;
+        if (fd >= 0) {
+            auto& s = *tcp_states.get(fd); s.pcb = pcb; s.connected = true;
+            setup(s);
+            listener.accepted[(listener.accept_head+listener.accept_count)%listener.accepted.size()]=fd;
+            ++listener.accept_count;
+            return ERR_OK;
+        }
     }
     tcp_abort(pcb); return ERR_ABRT;
 }
@@ -187,12 +194,15 @@ public:
     int accept(int fd, sockaddr* addr, SockLen* n) override {
         Lock lock; auto* s = tcp_states.get(fd);
         if (!s || !s->listening) return fail(EINVAL);
-        for (auto& pending : s->accepted) if (pending >= 0) {
-            const int accepted = pending; pending = -1;
-            auto* child = tcp_states.get(accepted);
-            if (addr && n && child && child->pcb) {
+        if (s->accept_count) {
+            const int accepted=s->accepted[s->accept_head];
+            s->accepted[s->accept_head]=-1;
+            s->accept_head=(s->accept_head+1)%s->accepted.size();
+            --s->accept_count;
+            auto* child=tcp_states.get(accepted);
+            if(addr && n && child && child->pcb) {
                 AddrInfo a{child->pcb->remote_ip, child->pcb->remote_port, 1};
-                std::memcpy(addr, &a, std::min<std::size_t>(*n,sizeof(a))); *n=sizeof(a);
+                std::memcpy(addr,&a,std::min<std::size_t>(*n,sizeof(a))); *n=sizeof(a);
             }
             return accepted;
         }
@@ -235,7 +245,7 @@ public:
     void apply_listen_socket_options(int fd) override { Lock lock; auto* s=tcp_states.get(fd); if(s && s->pcb) ip_set_option(s->pcb,SOF_REUSEADDR); }
     const void* tcp_stream_addrinfo_hints() const noexcept override { return nullptr; }
     const void* tcp_stream_passive_addrinfo_hints() const noexcept override { return nullptr; }
-    std::uint64_t now_ms() override { return to_ms_since_boot(get_absolute_time()); }
+    std::uint64_t now_ms() override { return time_us_64()/1000; }
     bool is_in_progress(int e) const noexcept override { return e == EINPROGRESS; }
     bool is_peer_gone(int e) const noexcept override { return e == ECONNRESET || e == EPIPE; }
     int err_timed_out() const noexcept override { return ETIMEDOUT; }

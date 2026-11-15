@@ -18,7 +18,7 @@ io::ProtocolRegistry make_default_network_registry()
             return pico::make_http_protocol([](bool tls)->std::unique_ptr<io::INetworkProtocol> {
                 if(tls) return pico::make_tls_protocol();
                 return std::make_unique<pico::TcpProtocol>();
-            }, [] { return to_ms_since_boot(get_absolute_time()); });
+            }, [] { return time_us_64()/1000; });
         });
     }
     return r;

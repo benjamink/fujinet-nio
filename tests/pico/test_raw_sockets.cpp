@@ -46,14 +46,14 @@ TEST_CASE_FIXTURE(Fixture,"TCP credits only consumed bytes and retains refused r
     const auto fd=stream();auto* p=fake::tcp.back().get();
     {
         Locked lock;
-        REQUIRE(p->recv(p->arg,p,packet(4096),ERR_OK)==ERR_OK);
+        REQUIRE(p->recv(p->arg,p,packet(FN_PICO_TCP_WINDOW_BYTES),ERR_OK)==ERR_OK);
         CHECK(p->credited==0);
         auto* retry=packet(1,7);const auto freed=fake::freed_pbufs;
         CHECK(p->recv(p->arg,p,retry,ERR_OK)==ERR_MEM);
         CHECK(fake::freed_pbufs==freed);
-        std::array<std::uint8_t,4096> out{};
-        CHECK(tcp.recv(fd,out.data(),out.size())==4096);
-        CHECK(p->credited==4096);
+        std::array<std::uint8_t,FN_PICO_TCP_WINDOW_BYTES> out{};
+        CHECK(tcp.recv(fd,out.data(),out.size())==FN_PICO_TCP_WINDOW_BYTES);
+        CHECK(p->credited==FN_PICO_TCP_WINDOW_BYTES);
         CHECK(out.front()==42);CHECK(out.back()==42);
         CHECK(p->recv(p->arg,p,retry,ERR_OK)==ERR_OK);
     }
@@ -131,4 +131,30 @@ TEST_CASE_FIXTURE(Fixture,"DNS timeout protects late callbacks and bounds pendin
     for(std::size_t i=first;i<first+4;++i)fake::complete_dns(i);
     fake::dns_result=ERR_OK;CHECK(tcp.getaddrinfo("host","80",nullptr,&ai)==0);tcp.freeaddrinfo(ai);
     CHECK(fake::lock_depth==0);
+}
+
+TEST_CASE_FIXTURE(Fixture,"Listener accepts queued clients FIFO across wrap and overflow") {
+    const auto fd=stream(false);REQUIRE(tcp.listen(fd,4)==0);auto* listener=fake::tcp.back().get();
+    auto arrive=[&](unsigned id) {
+        Locked lock;auto* child=tcp_new_ip_type(0);child->remote_port=id;
+        const auto status=listener->accept(listener->arg,child,ERR_OK);
+        return std::make_pair(child,status);
+    };
+    auto [a,sa]=arrive(1);auto [b,sb]=arrive(2);CHECK(sa==ERR_OK);CHECK(sb==ERR_OK);
+    auto accept_port=[&] {
+        net::AddrInfo address{};net::SockLen size=sizeof(address);
+        const int child=tcp.accept(fd,reinterpret_cast<sockaddr*>(&address),&size);tcps.push_back(child);
+        REQUIRE(child>=0);return address.port;
+    };
+    CHECK(accept_port()==1);auto [c,sc]=arrive(3);CHECK(sc==ERR_OK);
+    CHECK(accept_port()==2);CHECK(accept_port()==3);
+    tcp.close(tcps[1]);tcp.close(tcps[2]);tcp.close(tcps[3]);
+    for(unsigned i=4;i<7;++i) CHECK(arrive(i).second==ERR_OK);
+    auto [overflow,status]=arrive(7);CHECK(status==ERR_ABRT);CHECK(overflow->dead);
+    for(unsigned i=4;i<7;++i) CHECK(accept_port()==i);
+    CHECK(tcp.accept(fd,nullptr,nullptr)==-1);CHECK(tcp.last_errno()==EAGAIN);
+}
+TEST_CASE_FIXTURE(Fixture,"TCP monotonic milliseconds do not wrap after 49 days") {
+    fake::now=UINT64_C(0xffffffff)-2;const auto before=tcp.now_ms();
+    fake::now+=10;CHECK(tcp.now_ms()-before==10);CHECK(tcp.now_ms()>UINT32_MAX);
 }
