@@ -100,7 +100,41 @@ TcpChannel's BSD `select` dependency. A failed partial TNFS send closes the stre
 ### Filesystem
 
 LittleFS persists `fujinet.yaml` on onboard flash. TNFS and HTTP filesystems use
-the implemented network backends. SD over SPI remains future work.
+the implemented network backends. An SD card on SPI is the filesystem `sd0` (below).
+
+### SD card (`sd0`)
+
+A FAT-formatted SD/SDHC/SDXC card wired to SPI0 appears as `sd0:/`, with long names and
+UTF-8 file names. FAT12/16/32 only: exFAT (cards over 32 GB as sold) is not supported, so
+format larger cards as FAT32, or use the console command `format sd0 confirm`, which
+creates FAT32 on the whole card and destroys what is on it.
+
+| SD module pin | Pico 2 W pin | GPIO |
+|---|---|---|
+| CS (SS) | 22 | GP17 |
+| SCK (CLK) | 24 | GP18 |
+| MOSI (DI) | 25 | GP19 |
+| MISO (DO) | 21 | GP16 |
+| GND | 23 (or any GND) | |
+| VCC | 36 (3V3 OUT) | |
+
+A bare SD breakout or socket takes 3.3 V. Modules with an onboard regulator and level
+shifter (usually marked "5V") are normally fed 5 V from VBUS (pin 40); their level shifters
+work with 3.3 V signals. Keep the wires short: the default 10 MHz clock is for breadboard
+wiring (cards allow 25 MHz, `NIO_PICO_SD_BAUD`). The pins are CMake cache variables
+(`NIO_PICO_SD_SPI`, `_MISO`, `_CS`, `_SCK`, `_MOSI`); any pins valid for the chosen SPI block work.
+
+- The card is looked for once, at boot. With no usable card there is no `sd0` and nothing
+  changes. A card inserted later needs a restart. A card that was mounted and then errors is
+  re-initialised on the next access (at most once a second); files opened before are then dead.
+- As on ESP32, a present `sd0` becomes the default persistent store for disk images and the
+  app store. `fujinet.yaml` stays on flash.
+- The driver (`src/platform/pico/sd_card.cpp`) speaks SPI mode directly. FatFs R0.15 comes from
+  the Pico SDK's TinyUSB (`lib/tinyusb/lib/fatfs`) and is built with `pico2w/fatfs/ffconf.h`,
+  so the SDK's TinyUSB submodules must be fetched. Core 0 only: FatFs is not built reentrant.
+- Native tests (`tests/pico-sd`) run the real driver and the real FatFs against a simulated
+  card that enforces the SPI-mode protocol, and check the volume FatFs writes with `fsck.vfat`
+  when it is installed. They need `PICO_SDK_PATH`.
 
 ### Memory
 
@@ -412,6 +446,7 @@ Source the workspace environment first. Configure/build/ctest these independent
 native projects outside the repository:
 
 - `tests/pico` → `/tmp/nio-pico-raw-tests`: raw callback and actual LittleFS tests.
+- `tests/pico-sd` → `/tmp/nio-pico-sd-tests`: the SD driver and FatFs against a simulated card (needs `PICO_SDK_PATH`).
 - `tests/pico-http` → `/tmp/nio-pico-http-tests`: 14 cases / 4851 assertions covering
   parser framing, malformed responses, methods/uploads/replay, redirects,
   timeout and a 20 KiB response across queue backpressure.

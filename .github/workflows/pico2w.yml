@@ -36,7 +36,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y -o Acquire::Retries=3 \
-              build-essential cmake ninja-build pkg-config python3 libusb-1.0-0-dev \
+              build-essential dosfstools cmake ninja-build pkg-config python3 libusb-1.0-0-dev \
               gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
 
       - name: Fetch the Pico SDK
@@ -48,7 +48,7 @@ jobs:
       - name: Native tests
         run: |
           set -eu
-          for project in pico pico-http pico-tls pico-tls-adapter pico-usb pico-ca; do
+          for project in pico pico-http pico-tls pico-tls-adapter pico-usb pico-ca pico-sd; do
               echo "::group::tests/$project"
               cmake -S "tests/$project" -B "$RUNNER_TEMP/native/$project"
               cmake --build "$RUNNER_TEMP/native/$project" -j"$(nproc)"
@@ -58,6 +58,8 @@ jobs:
           # pico-ca skips its real-mbedTLS tests, with only a warning, when the SDK is missing.
           # Here that would be a silent loss of the trust-store checks, so insist on them.
           test -x "$RUNNER_TEMP/native/pico-ca/pico-ca-verify-tests"
+          # pico-sd checks the FAT volume FatFs writes with fsck.vfat when it is installed.
+          command -v fsck.vfat
           python3 -I -m unittest discover -s tests -p 'test_pico_*.py' -v
 
       - name: Firmware

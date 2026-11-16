@@ -77,6 +77,19 @@ set_property(TARGET pico_mbedtls PROPERTY INTERFACE_SOURCES "${NIO_MBEDTLS_SOURC
 # The firmware is built for size (-Os), but an HTTPS handshake spends nearly all its time in mbedTLS's
 # big-number and elliptic-curve arithmetic, and record encryption sets transfer speed. Build those
 # files for speed. Set NIO_PICO_MBEDTLS_OPT to "" to build them for size like everything else.
+# SD card on SPI (pico2w/README.md, "SD card"). Defaults: SPI0 on GP16 MISO, GP17 CS, GP18 SCK,
+# GP19 MOSI (physical pins 21, 22, 24, 25, with GND on 23). Any other pins valid for the chosen
+# SPI block work; the 10 MHz clock suits breadboard wiring (cards allow up to 25 MHz).
+set(NIO_PICO_SD_SPI 0 CACHE STRING "SPI block (0 or 1) the SD card is wired to")
+set(NIO_PICO_SD_MISO 16 CACHE STRING "SD card MISO (DO) GPIO")
+set(NIO_PICO_SD_CS 17 CACHE STRING "SD card chip select GPIO")
+set(NIO_PICO_SD_SCK 18 CACHE STRING "SD card clock GPIO")
+set(NIO_PICO_SD_MOSI 19 CACHE STRING "SD card MOSI (DI) GPIO")
+set(NIO_PICO_SD_BAUD 10000000 CACHE STRING "SD card SPI clock in Hz after initialisation")
+
+include(${CMAKE_CURRENT_LIST_DIR}/fatfs/fatfs.cmake)
+nio_fatfs_stage(${PICO_SDK_PATH} ${CMAKE_CURRENT_BINARY_DIR}/fatfs)
+
 set(NIO_PICO_MBEDTLS_OPT "-O2" CACHE STRING "Optimisation flag for mbedTLS's crypto arithmetic (empty: build for size)")
 set(NIO_MBEDTLS_FAST_FILES bignum.c bignum_core.c bignum_mod.c bignum_mod_raw.c ecp.c ecp_curves.c
     ecdsa.c ecdh.c aes.c gcm.c sha256.c sha512.c constant_time.c)
@@ -130,6 +143,7 @@ add_executable(fujinet_nio_pico2w
     ${NIO}/third_party/esp/esp_littlefs/src/littlefs/lfs.c
     ${NIO}/third_party/esp/esp_littlefs/src/littlefs/lfs_util.c
     ${NIO}/third_party/cjson/cJSON.c
+    ${NIO_FATFS_SOURCES}
     ${NIO}/third_party/cjson/cJSON_Utils.c
     ${NIO_LIB_SOURCES}
     ${NIO_PICO_PLATFORM_SOURCES}
@@ -137,6 +151,7 @@ add_executable(fujinet_nio_pico2w
 
 target_include_directories(fujinet_nio_pico2w PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}/generated
+    ${NIO_FATFS_INCLUDE_DIR}
     ${CMAKE_CURRENT_LIST_DIR}            # lwipopts.h, mbedtls_config.h
     ${CMAKE_CURRENT_LIST_DIR}/compat     # <mutex>, <condition_variable> for newlib
     ${NIO}/include
@@ -149,6 +164,12 @@ target_include_directories(fujinet_nio_pico2w PRIVATE
 target_compile_definitions(fujinet_nio_pico2w PRIVATE
     FN_HTTPS_TEST_CA=$<BOOL:${FN_HTTPS_TEST_CA}>
     FN_HTTPS_TEST_CA_ADDITIVE=$<BOOL:${FN_HTTPS_TEST_CA_ADDITIVE}>
+    NIO_PICO_SD_SPI=${NIO_PICO_SD_SPI}
+    NIO_PICO_SD_MISO=${NIO_PICO_SD_MISO}
+    NIO_PICO_SD_CS=${NIO_PICO_SD_CS}
+    NIO_PICO_SD_SCK=${NIO_PICO_SD_SCK}
+    NIO_PICO_SD_MOSI=${NIO_PICO_SD_MOSI}
+    NIO_PICO_SD_BAUD=${NIO_PICO_SD_BAUD}
     PICO_STACK_SIZE=16384
     PICO_CORE1_STACK_SIZE=4096
     PICO_MULTICORE_LOCKOUT_BEFORE_CORE1_STARTED=0
@@ -180,6 +201,7 @@ target_link_libraries(fujinet_nio_pico2w PRIVATE
     pico_flash
     pico_multicore
     hardware_flash
+    hardware_spi
     hardware_watchdog
     yaml-cpp
 )

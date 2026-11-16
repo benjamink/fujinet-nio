@@ -60,6 +60,11 @@ int main()
     if (auto flash = platform::pico::create_flash_filesystem()) {
         core.storageManager().registerFileSystem(std::move(flash));
     }
+    // An SD card, if one is wired and present, becomes "sd0" and (as on ESP32) the default
+    // persistent store for disk images and the app store; fujinet.yaml stays on flash.
+    if (auto sd = platform::pico::create_sd_filesystem()) {
+        core.storageManager().registerFileSystem(std::move(sd));
+    }
     core.storageManager().registerFileSystem(platform::pico::create_tnfs_filesystem());
     core.storageManager().registerFileSystem(platform::pico::create_http_filesystem());
 
@@ -115,8 +120,16 @@ int main()
     auto consoleTransport=console::create_default_console_transport();
     console::ConsoleEngine console(diagnostics,*consoleTransport,core.storageManager());
     console.set_reboot_handler([] { watchdog_reboot(0,0,0); });
-    console.set_format_handler([](std::string_view name) {
-        return name == "flash" && platform::pico::format_flash_filesystem();
+    console.set_format_handler([&core](std::string_view name) {
+        if (name == "flash") return platform::pico::format_flash_filesystem();
+        if (name == "sd0") {
+            // The card's filesystem must not be open while it is recreated.
+            core.storageManager().unregisterFileSystem("sd0");
+            const bool ok = platform::pico::format_sd_filesystem();
+            if (auto sd = platform::pico::create_sd_filesystem()) core.storageManager().registerFileSystem(std::move(sd));
+            return ok;
+        }
+        return false;
     });
     // Debug aid: name the loop phase that stalls. FN_LOGW compiles away without FN_DEBUG.
     constexpr std::uint32_t kSlowPhaseUs = 20000;
