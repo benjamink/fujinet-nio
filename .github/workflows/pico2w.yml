@@ -1,0 +1,78 @@
+name: Pico 2 W
+
+# Build the Pico 2 W firmware and run its native tests on every pull request. Nothing else
+# compiles src/platform/pico/ or pico2w/, so a change to shared code, to the mbedTLS
+# configuration, or to the trusted-root bundle could break the port (or quietly weaken TLS)
+# with every other check green. The native tests cover the socket queues, LittleFS, USB bridge,
+# HTTP parser, the TLS adapter, and the trust store against the real mbedTLS and real captured
+# certificate chains.
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  # The SDK the firmware and the native tests are measured with (pico2w/README.md).
+  PICO_SDK_TAG: "2.3.1"
+
+jobs:
+  pico2w:
+    name: Pico 2 W firmware and native tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y -o Acquire::Retries=3 \
+              build-essential cmake ninja-build pkg-config python3 libusb-1.0-0-dev \
+              gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
+
+      - name: Fetch the Pico SDK
+        run: |
+          git clone --depth 1 --branch "$PICO_SDK_TAG" --recurse-submodules --shallow-submodules \
+              https://github.com/raspberrypi/pico-sdk "$RUNNER_TEMP/pico-sdk"
+          echo "PICO_SDK_PATH=$RUNNER_TEMP/pico-sdk" >> "$GITHUB_ENV"
+
+      - name: Native tests
+        run: |
+          set -eu
+          for project in pico pico-http pico-tls pico-tls-adapter pico-usb pico-ca; do
+              echo "::group::tests/$project"
+              cmake -S "tests/$project" -B "$RUNNER_TEMP/native/$project"
+              cmake --build "$RUNNER_TEMP/native/$project" -j"$(nproc)"
+              ctest --test-dir "$RUNNER_TEMP/native/$project" --output-on-failure
+              echo "::endgroup::"
+          done
+          # pico-ca skips its real-mbedTLS tests, with only a warning, when the SDK is missing.
+          # Here that would be a silent loss of the trust-store checks, so insist on them.
+          test -x "$RUNNER_TEMP/native/pico-ca/pico-ca-verify-tests"
+          python3 -I -m unittest discover -s tests -p 'test_pico_*.py' -v
+
+      - name: Firmware
+        run: |
+          set -eu
+          cmake -S pico2w -B "$RUNNER_TEMP/pico2w" -DPICO_BOARD=pico2_w -DPICO_PLATFORM=rp2350-arm-s
+          cmake --build "$RUNNER_TEMP/pico2w" -j"$(nproc)"
+          python3 pico2w/size_report.py "$RUNNER_TEMP/pico2w/fujinet_nio_pico2w.elf.map" \
+              --elf "$RUNNER_TEMP/pico2w/fujinet_nio_pico2w.elf" \
+              --binary "$RUNNER_TEMP/pico2w/fujinet_nio_pico2w.bin" | tee "$RUNNER_TEMP/size.txt"
+          cp "$RUNNER_TEMP/pico2w/fujinet_nio_pico2w.uf2" .
+
+      - name: Upload the firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: fujinet_nio_pico2w
+          path: fujinet_nio_pico2w.uf2
+          if-no-files-found: error

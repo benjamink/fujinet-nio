@@ -20,6 +20,11 @@ cmake --build /tmp/nio-pico2w-build -j8
 Needs `arm-none-eabi-gcc` and `arm-none-eabi-newlib`, and the Pico SDK with its
 lwIP, mbedTLS and CYW43 submodules. The first configure downloads picotool.
 The default build type is `MinSizeRel` (`-Os`).
+
+CI (`.github/workflows/pico2w.yml`) builds the firmware and runs every native test project below on each
+pull request, with the Pico SDK 2.3.1 and Ubuntu 24.04's `gcc-arm-none-eabi` 13.2. Sizes in this
+document were measured with GCC 16.2; GCC 13.2 produces a larger image for the same source
+(1235396 bytes against 1176924 at the time of writing), so compare sizes across the same compiler.
 `FN_LOG*` compile to nothing unless `FN_DEBUG` is defined, as on the other targets, so
 the default image is silent on UART0. Configure with `-DFN_DEBUG=ON` to get the boot
 banner and logs on UART0 (GPIO0 TX / GPIO1 RX, 115200 baud); it adds about 19.5 KB.
