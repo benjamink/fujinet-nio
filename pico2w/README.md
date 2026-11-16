@@ -302,8 +302,11 @@ static storage; only the small Channel facade is dynamically allocated.
 ### HTTP API and bounds
 
 GET, POST, PUT, DELETE and HEAD are implemented over TCP or TLS. Request headers
-and response metadata are bounded to 8 KiB, URLs to 2048 bytes, individual header
-lines to 2048 bytes, chunk-size lines to 128 bytes, and header counts to 64.
+are bounded to 8 KiB and URLs to 2048 bytes. Response metadata (the status line, headers
+and trailers together) is bounded to 16 KiB, a single response header line to 8 KiB,
+chunk-size lines to 128 bytes, and header counts to 64. The response limits are generous
+on purpose: github.com sends a 4.4 KB Content-Security-Policy on one line (5.8 KB of
+headers), and a 2 KiB line limit turned that valid response into an IOError.
 Known request bodies use `bodyLenHint` as Content-Length. Existing flag bit 2
 with zero length enables chunked upload through a bounded 4096-byte chunk buffer;
 a zero-length write commits the upload; its successful acknowledgement remains

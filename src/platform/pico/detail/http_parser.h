@@ -16,6 +16,12 @@ class HttpParser {
     bool cr_=false, head_=false, ready_=false, chunked_=false;
     unsigned interim_=0, status_=0;
     std::size_t metadata_bytes_=0;
+    // Response bounds. Real servers send long single lines: GitHub's Content-Security-Policy is
+    // over 4 KB on one line and its headers total nearly 6 KB, which a 2 KiB line limit refused
+    // (a valid response turned into an IOError). A line may use the whole metadata budget, so the
+    // total is what actually bounds memory.
+    static constexpr std::size_t max_header_line=8192;
+    static constexpr std::size_t max_metadata=16384;
     std::uint64_t remaining_=0, body_count_=0;
     std::optional<std::uint64_t> length_;
     std::vector<std::pair<std::string,std::string>> headers_;
@@ -106,11 +112,11 @@ public:
         }
         if(state_==State::ChunkCR) { if(byte!='\r') return fail(); state_=State::ChunkLF; return true; }
         if(state_==State::ChunkLF) { if(byte!='\n') return fail(); state_=State::ChunkSize; return true; }
-        if(state_!=State::ChunkSize && ++metadata_bytes_>8192) return fail();
+        if(state_!=State::ChunkSize && ++metadata_bytes_>max_metadata) return fail();
         if(cr_) { cr_=false; if(byte!='\n') return fail(); return completed_line(); }
         if(byte=='\r') { cr_=true; return true; }
         if(byte=='\n' || byte==0 || byte==127 || (byte<32 && byte!='\t')) return fail();
-        const std::size_t limit=state_==State::ChunkSize ? 128 : 2048;
+        const std::size_t limit=state_==State::ChunkSize ? 128 : max_header_line;
         if(line_.size()>=limit) return fail();
         line_.push_back(byte); return true;
     }
