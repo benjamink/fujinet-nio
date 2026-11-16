@@ -16,7 +16,8 @@ serves a Handspring Visor Springboard module and carries its FujiBus packets to
 NIO over a [packet link](packet_link.md).
 The [Pico 2 W port](../pico2w/README.md) runs NIO itself on an RP2350: the portable core and bounded raw-lwIP sockets,
 TLS/HTTP, LittleFS, USB CDC and UART console link for the board. Native behavior
-tests pass; physical acceptance and runtime TLS memory peaks remain pending.
+tests pass, and the port has been exercised on a real board (USB, Wi-Fi, flash, HTTP/HTTPS, TNFS reads);
+what is still untested, including runtime TLS memory peaks, is listed in its README.
 
 The optional [Visor USB Host profile](visor-usb-host.md) receives raw FujiBus
 packets through a POSIX-local libusb adapter; existing services remain unchanged.

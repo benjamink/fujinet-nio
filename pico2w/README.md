@@ -3,7 +3,8 @@
 A first port of NIO's firmware to the **Pico 2 W** (RP2350, Cortex-M33, CYW43439
 Wi-Fi). The portable core (`src/lib`), config store, devices, Wi-Fi, raw TCP/UDP/DNS,
 TNFS, USB CDC, UART console, LittleFS, TLS and HTTP/HTTPS build and link for the
-board. Nothing here has run on hardware yet.
+board. It was first brought up on a real Pico 2 W on 2026-11-16: what that verified, and what
+is still untested, is under "Hardware acceptance" below.
 
 It follows the architecture rule: no `#ifdef` in shared code. The port is a new
 `src/platform/pico/` plus a `main_pico.cpp`, selected by being a different
@@ -120,13 +121,40 @@ The `compat/` headers shadow `<mutex>` and `<condition_variable>` because
 arm-none-eabi libstdc++ has no gthreads. `src/platform/pico/libc_shims.cpp`
 provides `sleep`/`usleep` for `std::this_thread::sleep_for`.
 
-## Hardware acceptance still required
+## Hardware acceptance
 
-Verify Wi-Fi/DNS/TCP/UDP traffic, USB enumeration and full/disconnect recovery,
-UART diagnostics, flash persistence/power-loss recovery, and trusted/untrusted/
-wrong-hostname/expired TLS servers. Measure peak heap and stack with a TLS
-connection open. Optional UART transport, scan/BSSID selection, SNTP, low-water
-memory statistics were not added.
+Brought up on one Pico 2 W on 2026-11-16. Early bring-up used `FN_DEBUG` images for the UART logs;
+every performance figure below is from the release build, because debug builds are about 100 times slower.
+
+**Verified on the board**
+
+- Boot, the dual-core split (core 1 USB, core 0 everything else), USB CDC enumeration and
+  FujiBus over it, and the UART0 console including `format`.
+- LittleFS formatting, persistence of `fujinet.yaml` across reboots, and recovery of a board
+  whose last flash page was not blank.
+- Wi-Fi join with credentials set from the console and kept across reboots, DHCP and DNS
+  (1.3 ms ping with power save off, 150 ms with the driver default).
+- TCP and HTTP: 64 KiB transfers byte-exact (about 210 KB/s over TCP, 90 to 160 KB/s over HTTP).
+- HTTPS: 13 real sites complete a handshake and return an HTTP status (Let's Encrypt, Google,
+  GitHub and Gist, Cloudflare, Amazon, Microsoft, Wikipedia, Mozilla, Apple, python.org,
+  kernel.org and example.com), as does the valid badssl.com control; badssl's untrusted-root,
+  wrong-host, expired and self-signed hosts are refused.
+- TNFS over UDP against a LAN tnfsd: reads byte-exact for chunk sizes 512 to 4096 (about
+  60 KB/s with the read-ahead held to the 4-datagram queue).
+
+**Not yet verified on hardware**
+
+- TNFS writes, HTTP uploads (POST/PUT) and HTTPS redirects.
+- Peak heap and stack during a TLS handshake (native tests measure 7 to 14 KB of heap per
+  certificate verification; the real peak, and core 1's 4 KiB stack headroom, are unmeasured).
+- How long USB stalls while core 0 erases or programs flash, and power-loss recovery.
+- Long soak, Wi-Fi drop and rejoin, and USB unplug and replug under traffic.
+- TLS 1.3-only servers (the build speaks TLS 1.2), SD over SPI (not implemented), and the
+  optional UART transport, scan/BSSID selection and SNTP (not added).
+
+**Known limitation: HTTPS handshakes with elliptic-curve certificates are slow.** RSA-chained
+sites take 1.4 to 2.1 s, P-256 chains about 6.8 s and P-384 chains 9.8 to 11.6 s, because mbedTLS
+does the curve arithmetic in software at 150 MHz and is built for size.
 
 ## Ordered port measurements (build verification only)
 
@@ -423,7 +451,7 @@ restored byte-for-byte. No submodule pins were changed and nothing was pushed.
 - [x] Link Pico ELF/UF2 and measure each required backend stage.
 - [x] Verify socket/USB/flash/HTTP logic and TLS trust/time policy natively.
 - [x] Preserve POSIX/ESP32 compatibility and source-list isolation.
-- [ ] Physical USB, Wi-Fi, flash and TLS acceptance (no board attached, confirmed by maintainer).
+- [x] Physical USB, Wi-Fi, flash, TCP/HTTP/HTTPS and TNFS-read acceptance (2026-11-16; see "Hardware acceptance").
 - [ ] Measure peak heap and stack with one live TLS connection; decide runtime fit in 520 KiB.
 - [ ] Optional UART transport, scan/BSSID selection, SNTP and memory low-water marks.
 
