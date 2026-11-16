@@ -1,5 +1,6 @@
 #include "fujinet/platform/pico/wifi_link.h"
 
+#include "lwip/dns.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/netif.h"
 #include "pico/cyw43_arch.h"
@@ -76,7 +77,11 @@ std::string PicoWifiLink::gateway() const
 
 std::string PicoWifiLink::dns_server() const
 {
-    return {}; // dns_getserver() once the lwIP socket ops land
+    cyw43_arch_lwip_begin(); // lwIP state is owned by the background dispatcher
+    const ip_addr_t* dns = dns_getserver(0);
+    std::string text = (dns && !ip_addr_isany(dns)) ? std::string(ipaddr_ntoa(dns)) : std::string{};
+    cyw43_arch_lwip_end();
+    return text;
 }
 
 bool PicoWifiLink::active_credentials(net::WifiCredentials& out) const
