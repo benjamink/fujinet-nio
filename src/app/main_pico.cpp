@@ -10,6 +10,8 @@
 #include "pico/cyw43_arch.h"
 #include "hardware/watchdog.h"
 #include "pico/stdlib.h"
+#include "fujinet/platform/pico/memory_diag.h"
+#include "fujinet/platform/pico/stack_probe.h"
 #include "fujinet/platform/pico/usb_service.h"
 #include "fujinet/console/console_engine.h"
 #include "fujinet/diag/diagnostic_provider.h"
@@ -39,6 +41,7 @@ static constexpr const char* TAG = "nio";
 int main()
 {
     stdio_init_all();
+    platform::pico::paint_core0_stack();
     if (!platform::pico::start_usb_worker()) {
         FN_LOGE(TAG, "USB worker startup failed; flash initialization prohibited");
         return 1;
@@ -107,7 +110,8 @@ int main()
     auto diskDiag=diag::create_disk_diagnostic_provider(core);
     auto appDiag=diag::create_app_store_diagnostic_provider(core);
     diagnostics.add_provider(*coreDiag); diagnostics.add_provider(*netDiag);
-    diagnostics.add_provider(*diskDiag); diagnostics.add_provider(*appDiag);
+    auto picoMem=platform::pico::create_memory_diagnostic_provider();
+    diagnostics.add_provider(*diskDiag); diagnostics.add_provider(*appDiag); diagnostics.add_provider(*picoMem);
     auto consoleTransport=console::create_default_console_transport();
     console::ConsoleEngine console(diagnostics,*consoleTransport,core.storageManager());
     console.set_reboot_handler([] { watchdog_reboot(0,0,0); });

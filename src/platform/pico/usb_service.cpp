@@ -1,4 +1,5 @@
 #include "fujinet/platform/pico/usb_service.h"
+#include "fujinet/platform/pico/stack_probe.h"
 #include "detail/usb_worker.h"
 #include "pico/flash.h"
 #include "pico/multicore.h"
@@ -50,6 +51,7 @@ bool start_usb_worker() {
     if(attempted) return false;
     attempted=true;
     sem_init(&startup,0,1);
+    paint_core1_stack(); // the stack is unused until the core starts: measure how deep it goes
     multicore_launch_core1(worker_main);
     // The SDK ROM launch handshake precedes this bounded application readiness
     // wait. Failure must prevent main from reaching flash mount/write paths.

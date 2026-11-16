@@ -20,6 +20,8 @@ add_test(NAME pico-flash-tests COMMAND pico-flash-tests)
 
 add_executable(pico-usb-worker-tests test_usb_worker.cpp
     ../../src/platform/pico/usb_service.cpp
+    ../../src/platform/pico/stack_probe.cpp
+    usb_fakes/stack_regions_fake.cpp
     ../../src/platform/pico/channel_factory.cpp)
 target_compile_features(pico-usb-worker-tests PRIVATE cxx_std_20)
 target_include_directories(pico-usb-worker-tests PRIVATE usb_fakes ../../include)
@@ -27,3 +29,11 @@ target_compile_options(pico-usb-worker-tests PRIVATE -Wall -Wextra -Werror -UNDE
 foreach(mode lifecycle flash-failure usb-failure timeout)
     add_test(NAME pico-usb-worker-${mode} COMMAND pico-usb-worker-tests ${mode})
 endforeach()
+
+add_executable(pico-stack-probe-tests test_stack_probe.cpp
+    ../../src/platform/pico/stack_probe.cpp
+    usb_fakes/stack_regions_fake.cpp)
+target_compile_features(pico-stack-probe-tests PRIVATE cxx_std_20)
+target_include_directories(pico-stack-probe-tests PRIVATE ../../include)
+target_compile_options(pico-stack-probe-tests PRIVATE -Wall -Wextra -Werror)
+add_test(NAME pico-stack-probe COMMAND pico-stack-probe-tests)
