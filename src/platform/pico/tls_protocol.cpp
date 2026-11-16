@@ -3,6 +3,7 @@
 #include "fujinet/net/tcp_network_protocol_common.h"
 #include "fujinet/net/https_trust_config.h"
 #include "fujinet/net/test_ca_cert.h"
+#include "fujinet/core/logging.h"
 #include "fujinet/platform/time.h"
 #include "ca_bundle_data.h"
 #include "detail/tls_trust.h"
@@ -47,14 +48,17 @@ class TlsProtocol final : public io::INetworkProtocol {
         for(auto* part=p;part;part=part->next) self.rx_.push(part->payload,part->len);
         pbuf_free(p); return ERR_OK;
     }
-    static void failed(void* arg,err_t) {
+    static void failed(void* arg,[[maybe_unused]] err_t err) {
         auto& self=*static_cast<TlsProtocol*>(arg); self.pcb_=nullptr;
+        FN_LOGW("tls","connection failed: lwIP error %d (%s)",static_cast<int>(err),self.connected_?"after connect":"during handshake");
         self.error_=StatusCode::IOError; self.connected_=false;
     }
     static err_t connected(void* arg,altcp_pcb* pcb,err_t err) {
         auto& self=*static_cast<TlsProtocol*>(arg);
         auto* ssl=static_cast<mbedtls_ssl_context*>(altcp_tls_context(pcb));
         if(err!=ERR_OK || !ssl || mbedtls_ssl_get_verify_result(ssl)!=0 || !time_is_valid()) {
+            FN_LOGW("tls","refused: lwIP error %d, verify flags 0x%lx, clock %s",static_cast<int>(err),
+                    ssl ? static_cast<unsigned long>(mbedtls_ssl_get_verify_result(ssl)) : 0ul,time_is_valid() ? "set" : "unset");
             self.error_=StatusCode::IOError; self.pcb_=nullptr;
             altcp_arg(pcb,nullptr); altcp_err(pcb,nullptr); altcp_abort(pcb); return ERR_ABRT;
         }
@@ -109,7 +113,10 @@ public:
     }
     void poll() override {
         Lock lock;
-        if(pcb_ && !connected_ && time_us_64()/1000-start_>=15000) error_=StatusCode::Timeout;
+        if(pcb_ && !connected_ && time_us_64()/1000-start_>=15000) {
+            FN_LOGW("tls","handshake timed out after 15 s");
+            error_=StatusCode::Timeout;
+        }
         if(error_!=StatusCode::Ok) release();
     }
     StatusCode write_body(std::uint32_t offset,const std::uint8_t* data,std::size_t length,std::uint16_t& written) override {
