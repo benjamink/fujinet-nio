@@ -3,6 +3,13 @@
 #include "lwip/ip4_addr.h"
 #include "lwip/netif.h"
 #include "pico/cyw43_arch.h"
+#include "fujinet/core/logging.h"
+
+// CYW43 power-save mode, chosen at build time by pico2w/CMakeLists.txt (NIO_PICO_WIFI_PM).
+// The default is the driver's own, so an unset build behaves as before.
+#ifndef NIO_PICO_WIFI_PM
+#define NIO_PICO_WIFI_PM CYW43_DEFAULT_PM
+#endif
 
 namespace fujinet::platform::pico {
 
@@ -21,6 +28,9 @@ void PicoWifiLink::connect(std::string ssid, std::string pass)
     _ssid = std::move(ssid);
     _password = std::move(pass);
     cyw43_arch_enable_sta_mode();
+    // enable_sta_mode applies CYW43_DEFAULT_PM; replace it with the configured mode.
+    cyw43_wifi_pm(&cyw43_state, NIO_PICO_WIFI_PM);
+    FN_LOGI("wifi", "power-save mode 0x%08lx", static_cast<unsigned long>(NIO_PICO_WIFI_PM));
     // Non-blocking: poll() watches the join. BSSID pinning is not exposed by cyw43_arch yet.
     const uint32_t auth = _password.empty() ? CYW43_AUTH_OPEN : CYW43_AUTH_WPA2_MIXED_PSK;
     const int rc = cyw43_arch_wifi_connect_async(_ssid.c_str(), _password.empty() ? nullptr : _password.c_str(), auth);
