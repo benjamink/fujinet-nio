@@ -131,4 +131,11 @@ std::unique_ptr<fs::IFileSystem> mount_littlefs(std::shared_ptr<FlashDevice> dev
     if(!volume->mount()) return nullptr;
     return std::make_unique<FileSystem>(std::move(volume));
 }
+bool format_littlefs(std::shared_ptr<FlashDevice> device) {
+    if(!device) return false;
+    Volume volume(std::move(device));
+    if(lfs_format(&volume.lfs,&volume.config)!=0 || lfs_mount(&volume.lfs,&volume.config)!=0) return false;
+    volume.mounted=true; // ~Volume unmounts; the mount proves the new superblock reads back
+    return true;
+}
 }

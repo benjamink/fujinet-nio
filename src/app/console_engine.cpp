@@ -135,6 +135,8 @@ ConsoleEngine::ConsoleEngine(diag::DiagnosticRegistry& registry, IConsoleTranspo
         return true;
     });
 
+    register_format_command();
+
     // Start "disconnected" so the first observed connected state prints MOTD/prompt.
     _last_connected = false;
 }
@@ -180,6 +182,8 @@ ConsoleEngine::ConsoleEngine(diag::DiagnosticRegistry& registry, IConsoleTranspo
         return true;
     });
 
+    register_format_command();
+
     // FS shell helper
     _fs_shell = std::make_unique<FsShell>(storage);
     (void)_fs_shell->register_commands(*_cmds, _io);
@@ -189,6 +193,39 @@ ConsoleEngine::ConsoleEngine(diag::DiagnosticRegistry& registry, IConsoleTranspo
 }
 
 ConsoleEngine::~ConsoleEngine() = default;
+
+void ConsoleEngine::register_format_command()
+{
+    // The way out of a filesystem the platform refused to mount or format by itself.
+    (void)_cmds->register_command(ConsoleCommandSpec{
+        .name = "format",
+        .summary = "recreate a filesystem empty, destroying its data (platform hook)",
+        .usage = "format <filesystem> confirm",
+    }, [this](const auto& argv) {
+        if (!_format) {
+            _io.write_line("error: format not supported on this platform/app");
+            return true;
+        }
+        if (argv.size() != 3 || argv[2] != "confirm") {
+            _io.write_line("usage: format <filesystem> confirm");
+            _io.write_line("warning: this recreates the filesystem empty and destroys its data");
+            return true;
+        }
+        const std::string name(argv[1]);
+        if (!_format(argv[1])) {
+            _io.write_line("error: format " + name + " failed, or that filesystem cannot be formatted");
+            return true;
+        }
+        _io.write_line("format: " + name + " recreated empty");
+        if (_reboot) {
+            _io.write_line("reboot: requested");
+            _reboot();
+        } else {
+            _io.write_line("restart to use the new filesystem");
+        }
+        return true;
+    });
+}
 
 void ConsoleEngine::run_loop()
 {

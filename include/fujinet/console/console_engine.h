@@ -73,6 +73,11 @@ public:
     // Optional: provide a platform/app-specific reboot handler (e.g. esp_restart on ESP32).
     void set_reboot_handler(std::function<void()> fn) { _reboot = std::move(fn); }
 
+    // Optional: platform hook behind the `format` command. It receives the filesystem
+    // name and must recreate it empty, returning false if it cannot or does not know
+    // the name. The command refuses to run without an explicit "confirm" argument.
+    void set_format_handler(std::function<bool(std::string_view)> fn) { _format = std::move(fn); }
+
     // Blocking loop (best for dedicated thread/task).
     void run_loop();
 
@@ -91,6 +96,8 @@ private:
 
     bool handle_line(std::string_view line);
 
+    void register_format_command();
+
     diag::DiagnosticRegistry& _registry;
     IConsoleTransport& _io;
     fujinet::fs::StorageManager* _storage{nullptr};
@@ -98,6 +105,7 @@ private:
     std::unique_ptr<ConsoleCommandRegistry> _cmds;
     std::unique_ptr<FsShell> _fs_shell;
     std::function<void()> _reboot;
+    std::function<bool(std::string_view)> _format;
 
     std::string _prompt{"> "};
     bool _edit_rendered{false};

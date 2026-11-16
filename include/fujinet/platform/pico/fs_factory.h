@@ -6,8 +6,13 @@
 
 namespace fujinet::platform::pico {
 
-// Flash-backed filesystem. Not implemented yet: returns nullptr (README, "Filesystem").
+// LittleFS on the reserved final MiB of flash. Returns nullptr if it cannot be
+// mounted; blank storage is formatted, nonblank storage is left untouched.
 std::unique_ptr<fujinet::fs::IFileSystem> create_flash_filesystem();
+
+// Recreate that LittleFS empty. Used by the console `format flash confirm` command,
+// the deliberate recovery for storage create_flash_filesystem refused to touch.
+bool format_flash_filesystem();
 
 std::unique_ptr<fujinet::fs::IFileSystem> create_tnfs_filesystem(bool useTcp = false);
 

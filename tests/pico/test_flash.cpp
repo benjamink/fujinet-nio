@@ -5,6 +5,8 @@
 #include <array>
 #include <cstring>
 #include <limits>
+#include <string>
+#include <vector>
 
 namespace {
 using namespace fujinet::platform::pico::detail;
@@ -95,4 +97,37 @@ TEST_CASE("Pico flash range rejects overflow and misaligned program or erase") {
     CHECK_FALSE(flash_range(1,std::numeric_limits<std::size_t>::max()));
     CHECK_FALSE(flash_range(1,page_size,page_size));CHECK_FALSE(flash_range(0,page_size-1,page_size));
     CHECK_FALSE(flash_range(page_size,block_size,block_size));CHECK_FALSE(flash_range(0,0,0));
+}
+
+TEST_CASE("one stray page blocks the automatic format; console format recovers") {
+    // Seen on a stock Pico 2 W: only the final 256-byte page of the partition was
+    // nonblank (0xEF), and the blank-only policy then refused to ever format.
+    auto device=std::make_shared<RamFlash>();
+    std::fill(device->bytes.end()-page_size,device->bytes.end(),0xef);
+    CHECK_FALSE(mount_littlefs(device));              // automatic formatting stays strict
+    REQUIRE(format_littlefs(device));                 // the operator's explicit recovery
+    auto fs=mount_littlefs(device);REQUIRE(fs);
+    const std::string yaml="wifi:\n  ssid: recovered\n";
+    {
+        auto file=fs->open("/fujinet.yaml","wb");REQUIRE(file);
+        CHECK(file->write(yaml.data(),yaml.size())==yaml.size());REQUIRE(file->flush());
+    }
+    fs.reset();
+    fs=mount_littlefs(device);REQUIRE(fs);            // and it persists across a remount
+    fujinet::fs::FileInfo info;REQUIRE(fs->stat("/fujinet.yaml",info));CHECK(info.sizeBytes==yaml.size());
+}
+
+TEST_CASE("format recovers a damaged superblock and reports flash failures") {
+    auto device=std::make_shared<RamFlash>();
+    REQUIRE(mount_littlefs(device));                  // blank: formatted automatically
+    std::fill_n(device->bytes.begin(),64,0x00);       // damage the first superblock copy
+    std::fill_n(device->bytes.begin()+block_size,64,0x00);   // and its pair
+    CHECK_FALSE(mount_littlefs(device));              // damaged data is never formatted over
+    REQUIRE(format_littlefs(device));
+    CHECK(mount_littlefs(device));
+
+    auto failing=std::make_shared<RamFlash>();
+    failing->fail_erase=true;
+    CHECK_FALSE(format_littlefs(failing));            // a failed erase is a failed format
+    CHECK_FALSE(format_littlefs(nullptr));
 }

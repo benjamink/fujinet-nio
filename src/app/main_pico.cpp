@@ -4,6 +4,7 @@
 // cooperative tick loop. What is stubbed is listed in pico2w/README.md.
 #include <cstdio>
 #include <memory>
+#include <string_view>
 
 #include "pico/cyw43_arch.h"
 #include "hardware/watchdog.h"
@@ -109,6 +110,9 @@ int main()
     auto consoleTransport=console::create_default_console_transport();
     console::ConsoleEngine console(diagnostics,*consoleTransport,core.storageManager());
     console.set_reboot_handler([] { watchdog_reboot(0,0,0); });
+    console.set_format_handler([](std::string_view name) {
+        return name == "flash" && platform::pico::format_flash_filesystem();
+    });
     for (;;) {
         platform::pico::service_console();
         console.step(0);

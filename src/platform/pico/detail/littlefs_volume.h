@@ -22,4 +22,9 @@ public:
     virtual bool erase(std::uint32_t offset)=0;
 };
 std::unique_ptr<fs::IFileSystem> mount_littlefs(std::shared_ptr<FlashDevice> device);
+// Recreate an empty LittleFS superblock, whatever the partition holds. Only the
+// operator-confirmed console `format` command calls this: mount_littlefs never
+// formats nonblank storage by itself. Other blocks are not wiped; LittleFS erases
+// a block before it writes it.
+bool format_littlefs(std::shared_ptr<FlashDevice> device);
 }

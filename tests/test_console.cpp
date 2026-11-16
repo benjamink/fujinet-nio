@@ -161,6 +161,62 @@ TEST_CASE("ConsoleEngine help prints diagnostic sections")
     CHECK(contains(io.out, "disk.slots"));
 }
 
+TEST_CASE("ConsoleEngine format needs a handler and an explicit confirm")
+{
+    fujinet::diag::DiagnosticRegistry dreg;
+    FakeConsoleTransport io;
+    fujinet::console::ConsoleEngine eng(dreg, io);
+    CHECK(eng.step(0)); // MOTD + prompt
+
+    // No platform hook: refused, nothing to call.
+    io.push_line("format flash confirm");
+    CHECK(eng.step(0));
+    CHECK(contains(io.out, "format not supported"));
+
+    std::vector<std::string> formatted;
+    int reboots = 0;
+    bool format_ok = true;
+    eng.set_format_handler([&](std::string_view name) {
+        formatted.emplace_back(name);
+        return format_ok;
+    });
+    eng.set_reboot_handler([&] { ++reboots; });
+
+    // Without "confirm" (or with extra words) the handler is never called.
+    for (const char* line : {"format", "format flash", "format flash now", "format flash confirm extra"}) {
+        io.out.clear();
+        io.push_line(line);
+        CHECK(eng.step(0));
+        CHECK(contains(io.out, "usage: format <filesystem> confirm"));
+    }
+    CHECK(formatted.empty());
+    CHECK(reboots == 0);
+
+    // A failing format reports it and does not reboot into a half-made filesystem.
+    format_ok = false;
+    io.out.clear();
+    io.push_line("format flash confirm");
+    CHECK(eng.step(0));
+    CHECK(contains(io.out, "error: format flash failed"));
+    CHECK(formatted == std::vector<std::string>{"flash"});
+    CHECK(reboots == 0);
+
+    // Success formats the named filesystem, then reboots.
+    format_ok = true;
+    io.out.clear();
+    io.push_line("format flash confirm");
+    CHECK(eng.step(0));
+    CHECK(contains(io.out, "format: flash recreated empty"));
+    CHECK(formatted == std::vector<std::string>{"flash", "flash"});
+    CHECK(reboots == 1);
+
+    // The command is listed in help.
+    io.out.clear();
+    io.push_line("help");
+    CHECK(eng.step(0));
+    CHECK(contains(io.out, "format"));
+}
+
 TEST_CASE("FsShell rm/rmdir semantics + wildcards + mv to directory")
 {
     fujinet::fs::StorageManager storage;

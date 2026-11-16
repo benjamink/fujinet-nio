@@ -49,4 +49,7 @@ std::unique_ptr<fs::IFileSystem> create_flash_filesystem() {
     if(!fs) FN_LOGE("flash","LittleFS mount failed; existing nonblank storage was not formatted");
     return fs;
 }
+bool format_flash_filesystem() {
+    return detail::format_littlefs(std::make_shared<HardwareFlash>());
+}
 }

@@ -19,12 +19,15 @@ cmake --build /tmp/nio-pico2w-build -j8
 
 Needs `arm-none-eabi-gcc` and `arm-none-eabi-newlib`, and the Pico SDK with its
 lwIP, mbedTLS and CYW43 submodules. The first configure downloads picotool.
-The default build type is `MinSizeRel` (`-Os`). The result is
+The default build type is `MinSizeRel` (`-Os`).
+`FN_LOG*` compile to nothing unless `FN_DEBUG` is defined, as on the other targets, so
+the default image is silent on UART0. Configure with `-DFN_DEBUG=ON` to get the boot
+banner and logs on UART0 (GPIO0 TX / GPIO1 RX, 115200 baud); it adds about 19.5 KB. The result is
 `/tmp/nio-pico2w-build/fujinet_nio_pico2w.uf2`.
 
 ## Size and acceptance
 
-The current build uses **1156328 bytes flash** and **349740 bytes static RAM**.
+The current build uses **1158152 bytes flash** and **349740 bytes static RAM**.
 Core 0 reserves a 16 KiB stack and core 1 reserves 4 KiB. This is a build measurement, not a runtime peak:
 core objects, protocol objects, TLS records/certificates and queues also allocate
 from the heap. A live TLS connection's peak heap and stack usage remains unknown.
@@ -119,6 +122,7 @@ so use `arm-none-eabi-size -A` and the linker map instead.
 | Final hardening (TLS window and lifecycle fixes) | 1153112 | 222312 | 2048 / 16384 |
 | TLS allocator pool prerequisite | 1153056 | 328816 | 2048 / 16384 |
 | Dual-core USB worker | 1156328 | 349740 | 2048 / 20480 |
+| Console `format` command | 1158152 | 349740 | 2048 / 20480 |
 
 Map component totals (flash/static RAM input bytes; excludes linker alignment):
 
@@ -198,6 +202,15 @@ ownership until closed. A blank partition is formatted only after every byte is
 verified 0xff. Nonblank mount failure, read failure, or format failure leaves the
 filesystem unavailable; corruption is never silently reformatted. Back up or
 explicitly erase the partition using a maintenance tool before reinitializing it.
+
+That policy is strict. The first Pico 2 W brought up on hardware carried a single
+stray 256-byte page of 0xEF at the very end of flash (0x103fff00), which was enough to
+disable persistence at boot (`Corrupted dir pair at {0x0, 0x1}` followed by `existing
+nonblank storage was not formatted`; the config then lives in memory only). The
+operator's way out is the console command `format flash confirm`: it recreates an
+empty LittleFS superblock and reboots. It does not wipe the other blocks, as
+LittleFS erases a block before writing it, so it is not a secure erase. Without
+`confirm` it only prints a usage line and a warning.
 
 The native `tests/pico` target uses the real LittleFS C implementation over bounded
 RAM flash. Five cases (21055 assertions) pass: persistence across remount, handles
