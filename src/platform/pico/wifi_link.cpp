@@ -6,8 +6,8 @@
 #include "pico/cyw43_arch.h"
 #include "fujinet/core/logging.h"
 
-// CYW43 power-save mode, chosen at build time by pico2w/CMakeLists.txt (NIO_PICO_WIFI_PM).
-// The default is the driver's own, so an unset build behaves as before.
+// CYW43 power-save mode, chosen at build time by pico2w/CMakeLists.txt (NIO_PICO_WIFI_PM),
+// which defaults to none. Without that definition this file falls back to the driver's own.
 #ifndef NIO_PICO_WIFI_PM
 #define NIO_PICO_WIFI_PM CYW43_DEFAULT_PM
 #endif

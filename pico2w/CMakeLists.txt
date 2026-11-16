@@ -41,10 +41,11 @@ configure_file(trust_roots.h.in generated/trust_roots.h @ONLY)
 # FN_LOG* compile to nothing unless FN_DEBUG is defined (as on POSIX Debug and ESP32
 # debug builds). Turn it on to get logs and the boot banner on UART0 (GPIO0 TX).
 option(FN_DEBUG "Compile FN_LOG* to UART0 stdio" OFF)
-# CYW43 Wi-Fi power save. The driver default sleeps the radio between beacons, which
-# adds tens of ms to every round trip; "none" keeps it awake (more power, lower latency).
-set(NIO_PICO_WIFI_PM "default" CACHE STRING "CYW43 power save: default, performance, aggressive or none")
-set_property(CACHE NIO_PICO_WIFI_PM PROPERTY STRINGS default performance aggressive none)
+# CYW43 Wi-Fi power save. The driver default sleeps the radio between beacons, which added
+# 70 to 230 ms to every round trip on hardware (ping 150 ms against 1.3 ms). This adapter is
+# USB powered, so the radio stays awake; choose another mode for a special case.
+set(NIO_PICO_WIFI_PM "none" CACHE STRING "CYW43 power save: none, default, performance or aggressive")
+set_property(CACHE NIO_PICO_WIFI_PM PROPERTY STRINGS none default performance aggressive)
 string(TOUPPER "${NIO_PICO_WIFI_PM}" NIO_WIFI_PM_UP)
 if(NOT NIO_WIFI_PM_UP MATCHES "^(DEFAULT|PERFORMANCE|AGGRESSIVE|NONE)$")
     message(FATAL_ERROR "NIO_PICO_WIFI_PM must be default, performance, aggressive or none")
