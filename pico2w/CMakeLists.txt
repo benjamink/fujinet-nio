@@ -38,6 +38,9 @@ set(NIO ${CMAKE_CURRENT_LIST_DIR}/..)
 set(NIO_PICO_CA_BUNDLE "${CMAKE_CURRENT_LIST_DIR}/certs/isrg-root-x1.pem" CACHE FILEPATH "PEM platform CA roots")
 file(READ "${NIO_PICO_CA_BUNDLE}" NIO_PICO_CA_PEM)
 configure_file(trust_roots.h.in generated/trust_roots.h @ONLY)
+# FN_LOG* compile to nothing unless FN_DEBUG is defined (as on POSIX Debug and ESP32
+# debug builds). Turn it on to get logs and the boot banner on UART0 (GPIO0 TX).
+option(FN_DEBUG "Compile FN_LOG* to UART0 stdio" OFF)
 option(FN_HTTPS_TEST_CA "Trust only FujiNet test CA" OFF)
 option(FN_HTTPS_TEST_CA_ADDITIVE "Add FujiNet test CA to platform roots" OFF)
 if(FN_HTTPS_TEST_CA AND FN_HTTPS_TEST_CA_ADDITIVE)
@@ -102,6 +105,7 @@ target_compile_definitions(fujinet_nio_pico2w PRIVATE
     PICO_CORE1_STACK_SIZE=4096
     PICO_MULTICORE_LOCKOUT_BEFORE_CORE1_STARTED=0
     FN_PLATFORM_PICO
+    $<$<BOOL:${FN_DEBUG}>:FN_DEBUG>
     PICO_CYW43_ARCH_THREADSAFE_BACKGROUND=1
 )
 target_compile_options(fujinet_nio_pico2w PRIVATE
