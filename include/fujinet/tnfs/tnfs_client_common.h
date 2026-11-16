@@ -366,6 +366,27 @@ public:
 
     void read_parallel(std::vector<ReadAt>& reads) override
     {
+        // Each request in flight is a reply the channel must queue. A channel with a small
+        // queue drops the excess, and the missing replies cost a full timeout, so send in
+        // batches no larger than it can hold.
+        const std::size_t window = std::max<std::size_t>(1, _channel->receive_datagram_capacity());
+        if (reads.size() <= window) {
+            read_parallel_batch(reads);
+            return;
+        }
+        std::vector<ReadAt> part;
+        for (std::size_t at = 0; at < reads.size(); at += window) {
+            const std::size_t n = std::min(window, reads.size() - at);
+            part.assign(reads.begin() + static_cast<std::ptrdiff_t>(at),
+                        reads.begin() + static_cast<std::ptrdiff_t>(at + n));
+            read_parallel_batch(part);
+            std::copy(part.begin(), part.end(), reads.begin() + static_cast<std::ptrdiff_t>(at));
+        }
+    }
+
+    // One batch whose replies all fit in the channel's receive queue.
+    void read_parallel_batch(std::vector<ReadAt>& reads)
+    {
         for (auto& r : reads) {
             r.got = 0;
         }

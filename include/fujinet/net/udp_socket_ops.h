@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <chrono>
 #include <cstddef>
+#include <limits>
 
 // Forward declarations only - no platform headers
 struct sockaddr;
@@ -65,6 +66,10 @@ public:
 
     // Iterate address list
     virtual AddrInfo* addrinfo_next(AddrInfo* ai) = 0;
+
+    // Datagrams a socket queues for the reader before it drops more. Platforms with a
+    // small fixed queue report it so senders can bound their requests in flight.
+    virtual std::size_t recv_queue_depth() const { return std::numeric_limits<std::size_t>::max(); }
 
     // Get address family, socktype, protocol from addrinfo
     virtual int addrinfo_family(AddrInfo* ai) = 0;

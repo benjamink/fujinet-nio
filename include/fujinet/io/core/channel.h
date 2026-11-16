@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstddef>
+#include <limits>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -51,6 +52,13 @@ public:
     // a lost peer is not completed by a new one. Channels with one permanent peer
     // (UART, PTY) never change it.
     virtual std::uint32_t connection_epoch() const { return 0; }
+
+    // How many datagrams the channel can queue for its reader before it drops
+    // further ones. A sender that expects several replies at once (TNFS read-ahead)
+    // must keep no more requests in flight than this, or the excess replies are lost
+    // and the sender waits out a timeout. The default is unbounded: a kernel socket
+    // buffer or a byte stream does not drop replies at this scale.
+    virtual std::size_t receive_datagram_capacity() const { return std::numeric_limits<std::size_t>::max(); }
 
     // Optionally wait until the channel may have bytes to read.
     // Returns true if work may be available now. The default is non-blocking
