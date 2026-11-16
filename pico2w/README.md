@@ -24,6 +24,11 @@ The default build type is `MinSizeRel` (`-Os`).
 the default image is silent on UART0. Configure with `-DFN_DEBUG=ON` to get the boot
 banner and logs on UART0 (GPIO0 TX / GPIO1 RX, 115200 baud); it adds about 19.5 KB.
 
+**Wi-Fi power save is off** (`NIO_PICO_WIFI_PM=none`). The CYW43 driver's own default sleeps the
+radio between beacons, which on hardware added 70 to 230 ms to every round trip (ping averaged
+150 ms, against 1.3 ms with it off). The adapter is USB powered, so the cost is irrelevant;
+configure with `-DNIO_PICO_WIFI_PM=default`, `performance` or `aggressive` for a special case.
+
 **Do not measure performance on a `FN_DEBUG` build.** It hex-dumps up to 512 bytes of every
 FujiBus reply and request payload to UART0, which at 115200 baud takes about 250 ms per
 reply. On hardware this made TCP reads look 100 times slower than they are (about 280 ms per
@@ -212,24 +217,26 @@ USB/radio service can pause during erase; hardware timing remains unmeasured.
 
 LittleFS uses 256-byte caches, a 32-byte lookahead and `block_cycles=500` wear-level
 metadata relocation. File flush commits through LittleFS; files retain volume
-ownership until closed. A blank partition is formatted only after every byte is
-verified 0xff. Nonblank mount failure, read failure, or format failure leaves the
-filesystem unavailable; corruption is never silently reformatted. Back up or
-explicitly erase the partition using a maintenance tool before reinitializing it.
+ownership until closed. A partition is formatted automatically only when both superblock
+copies (blocks 0 and 1) are erased; a volume that ever existed has data there, so damage in
+either copy leaves the filesystem unavailable and is never silently reformatted. Blocks
+outside that pair are not judged, as LittleFS erases a block before it writes it. (The first
+Pico 2 W brought up on hardware had a single factory-written 0xEF page at the very end of
+flash, 0x103fff00. Judging the whole MiB, as this code first did, turned that into
+`Corrupted dir pair at {0x0, 0x1}` followed by `existing nonblank storage was not
+formatted`, and the config stayed in memory only.) Read failure or format failure also
+leaves the filesystem unavailable.
 
-That policy is strict. The first Pico 2 W brought up on hardware carried a single
-stray 256-byte page of 0xEF at the very end of flash (0x103fff00), which was enough to
-disable persistence at boot (`Corrupted dir pair at {0x0, 0x1}` followed by `existing
-nonblank storage was not formatted`; the config then lives in memory only). The
-operator's way out is the console command `format flash confirm`: it recreates an
-empty LittleFS superblock and reboots. It does not wipe the other blocks, as
-LittleFS erases a block before writing it, so it is not a secure erase. Without
-`confirm` it only prints a usage line and a warning.
+For a volume with a damaged superblock, the operator's way out is the console command
+`format flash confirm`: it recreates an empty LittleFS superblock and reboots. It does not
+wipe the other blocks, so it is not a secure erase. Without `confirm` it only prints a usage
+line and a warning.
 
 The native `tests/pico` target uses the real LittleFS C implementation over bounded
-RAM flash. Five cases (21055 assertions) pass: persistence across remount, handles
-outliving filesystem objects, directory/file operations, corrupt first/tail bytes,
-I/O failures, and checked page/block boundaries. Firmware links with the partition
+RAM flash. Cases cover persistence across remount, handles outliving filesystem
+objects, directory/file operations, damage in either superblock copy (refused), stray
+bytes elsewhere (formatted), explicit format, I/O failures, and checked page/block
+boundaries. Firmware links with the partition
 guard. Power-loss recovery, endurance and physical writes remain hardware pending.
 
 Flash-stage map input bytes (flash/RAM): CYW43 236622/2598, LittleFS 15002/0,
@@ -336,6 +343,17 @@ For example, `cmake -S tests/pico-http -B /tmp/nio-pico-http-tests`, then
 These tests exercise native logic and mocked hardware boundaries; they are not
 USB/radio/flash hardware or live-TLS peak measurements. Raw and LittleFS targets
 also pass AddressSanitizer/UndefinedBehaviorSanitizer (including vendor C).
+
+### Known intermittent test failure
+
+On 2026-11-16 the POSIX unit-test target (`fujinet-nio-tests`, ctest #1) failed once in a full
+`ctest` run, 3 seconds slower than usual, and passed in every one of the 6 runs after it (3 on
+its own, 3 in the full set) and when run directly (882 cases, 173548 assertions). It was not
+caught, so the cause is unknown. The one test with a threshold close to its measured value is
+`ImageTranslator: PNG, JPEG and GIF convert on the platform's kConvertStackBytes thread`: the
+GIF conversion used 41754 of its 49152 bytes of stack, and a stack-depth check that tight
+could move with load or layout. That is a candidate, not a finding. If it recurs, capture the
+doctest output with `ctest --output-on-failure` before re-running.
 
 ### Measurement report and remaining acceptance
 
