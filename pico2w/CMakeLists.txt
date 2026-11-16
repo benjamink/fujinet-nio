@@ -74,6 +74,31 @@ get_target_property(NIO_MBEDTLS_SOURCES pico_mbedtls INTERFACE_SOURCES)
 list(FILTER NIO_MBEDTLS_SOURCES EXCLUDE REGEX "/pico_mbedtls\.c$")
 set_property(TARGET pico_mbedtls PROPERTY INTERFACE_SOURCES "${NIO_MBEDTLS_SOURCES}")
 
+# The firmware is built for size (-Os), but an HTTPS handshake spends nearly all its time in mbedTLS's
+# big-number and elliptic-curve arithmetic, and record encryption sets transfer speed. Build those
+# files for speed. Set NIO_PICO_MBEDTLS_OPT to "" to build them for size like everything else.
+set(NIO_PICO_MBEDTLS_OPT "-O2" CACHE STRING "Optimisation flag for mbedTLS's crypto arithmetic (empty: build for size)")
+set(NIO_MBEDTLS_FAST_FILES bignum.c bignum_core.c bignum_mod.c bignum_mod_raw.c ecp.c ecp_curves.c
+    ecdsa.c ecdh.c aes.c gcm.c sha256.c sha512.c constant_time.c)
+if(NIO_PICO_MBEDTLS_OPT)
+    # The library's sources are INTERFACE_SOURCES of these SDK targets and are compiled into the firmware.
+    set(NIO_MBEDTLS_FAST_COUNT 0)
+    foreach(target pico_mbedtls_crypto pico_mbedtls_x509 pico_mbedtls_tls)
+        get_target_property(sources ${target} INTERFACE_SOURCES)
+        foreach(src ${sources})
+            get_filename_component(name "${src}" NAME)
+            if(name IN_LIST NIO_MBEDTLS_FAST_FILES)
+                set_source_files_properties("${src}" PROPERTIES COMPILE_OPTIONS "${NIO_PICO_MBEDTLS_OPT}")
+                math(EXPR NIO_MBEDTLS_FAST_COUNT "${NIO_MBEDTLS_FAST_COUNT} + 1")
+            endif()
+        endforeach()
+    endforeach()
+    if(NIO_MBEDTLS_FAST_COUNT EQUAL 0)
+        message(FATAL_ERROR "NIO_PICO_MBEDTLS_OPT matched no mbedTLS source: the SDK's target layout changed")
+    endif()
+    message(STATUS "mbedTLS: ${NIO_MBEDTLS_FAST_COUNT} files built with ${NIO_PICO_MBEDTLS_OPT}")
+endif()
+
 # yaml-cpp, as for the POSIX build: library only.
 set(YAML_CPP_BUILD_TESTS   OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS   OFF CACHE BOOL "" FORCE)
