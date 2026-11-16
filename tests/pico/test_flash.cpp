@@ -57,13 +57,37 @@ TEST_CASE("LittleFS formats blank partition and persists config across remount")
     // An open file owns the mounted volume even if the registry releases its FS.
     fs.reset();CHECK(file->seek(0));CHECK(file->read(out.data(),out.size())==yaml.size());
 }
-TEST_CASE("LittleFS refuses nonblank corruption at either end without erasing") {
-    for(auto offset:{0u,flash_length-1}) {
+TEST_CASE("LittleFS refuses damage in either superblock copy without erasing") {
+    // Data in block 0 or 1 means a volume existed there: never format over it.
+    for(auto offset:{0u,1u,block_size-1,block_size,2*block_size-1}) {
+        CAPTURE(offset);
         auto device=std::make_shared<RamFlash>();device->bytes[offset]=0;
         const auto before=device->bytes;
         CHECK_FALSE(mount_littlefs(device));CHECK(device->erases==0);CHECK(device->programs==0);
         CHECK(device->bytes==before);
     }
+}
+TEST_CASE("LittleFS formats when only the superblock copies are blank") {
+    // Seen on a stock Pico 2 W: a single 0xEF page at the very end of flash. It must not
+    // disable storage, and nothing outside blocks 0 and 1 may be judged.
+    for(auto offset:{2*block_size,block_size*3+17,flash_length/2,flash_length-1,flash_length-page_size}) {
+        CAPTURE(offset);
+        auto device=std::make_shared<RamFlash>();
+        std::fill_n(device->bytes.begin()+offset,1,0xef);
+        auto fs=mount_littlefs(device);REQUIRE(fs);
+        const std::string yaml="wifi:\n  ssid: stock\n";
+        {
+            auto file=fs->open("/fujinet.yaml","wb");REQUIRE(file);
+            CHECK(file->write(yaml.data(),yaml.size())==yaml.size());REQUIRE(file->flush());
+        }
+        fs.reset();
+        fs=mount_littlefs(device);REQUIRE(fs);            // persists across a remount
+        fujinet::fs::FileInfo info;REQUIRE(fs->stat("/fujinet.yaml",info));CHECK(info.sizeBytes==yaml.size());
+    }
+    // A whole stray page, as seen on hardware.
+    auto device=std::make_shared<RamFlash>();
+    std::fill(device->bytes.end()-page_size,device->bytes.end(),0xef);
+    CHECK(mount_littlefs(device));
 }
 TEST_CASE("LittleFS read and formatting failures never produce a mounted filesystem") {
     auto device=std::make_shared<RamFlash>();
@@ -97,24 +121,6 @@ TEST_CASE("Pico flash range rejects overflow and misaligned program or erase") {
     CHECK_FALSE(flash_range(1,std::numeric_limits<std::size_t>::max()));
     CHECK_FALSE(flash_range(1,page_size,page_size));CHECK_FALSE(flash_range(0,page_size-1,page_size));
     CHECK_FALSE(flash_range(page_size,block_size,block_size));CHECK_FALSE(flash_range(0,0,0));
-}
-
-TEST_CASE("one stray page blocks the automatic format; console format recovers") {
-    // Seen on a stock Pico 2 W: only the final 256-byte page of the partition was
-    // nonblank (0xEF), and the blank-only policy then refused to ever format.
-    auto device=std::make_shared<RamFlash>();
-    std::fill(device->bytes.end()-page_size,device->bytes.end(),0xef);
-    CHECK_FALSE(mount_littlefs(device));              // automatic formatting stays strict
-    REQUIRE(format_littlefs(device));                 // the operator's explicit recovery
-    auto fs=mount_littlefs(device);REQUIRE(fs);
-    const std::string yaml="wifi:\n  ssid: recovered\n";
-    {
-        auto file=fs->open("/fujinet.yaml","wb");REQUIRE(file);
-        CHECK(file->write(yaml.data(),yaml.size())==yaml.size());REQUIRE(file->flush());
-    }
-    fs.reset();
-    fs=mount_littlefs(device);REQUIRE(fs);            // and it persists across a remount
-    fujinet::fs::FileInfo info;REQUIRE(fs->stat("/fujinet.yaml",info));CHECK(info.sizeBytes==yaml.size());
 }
 
 TEST_CASE("format recovers a damaged superblock and reports flash failures") {

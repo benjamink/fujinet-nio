@@ -34,10 +34,14 @@ struct Volume {
     ~Volume() { if(mounted) lfs_unmount(&lfs); }
     bool mount() {
         if(lfs_mount(&lfs,&config)==0) { mounted=true; return true; }
-        // Never infer an empty filesystem from a damaged superblock. Scan every
-        // byte before permitting the only automatic format path.
+        // Never infer an empty filesystem from a damaged superblock: format automatically
+        // only if both superblock copies (blocks 0 and 1) are erased. A volume that ever
+        // existed has data there, so damage is still refused. Other blocks are not judged:
+        // LittleFS erases a block before it writes it, and a stray page elsewhere (one
+        // factory-written 0xEF page at the end of flash disabled storage on a stock Pico 2 W)
+        // says nothing about whether a filesystem exists.
         std::array<std::uint8_t,page_size> page;
-        for(std::uint32_t offset=0;offset<flash_length;offset+=page_size) {
+        for(std::uint32_t offset=0;offset<2*block_size;offset+=page_size) {
             if(!device->read(offset,page.data(),page.size())) return false;
             for(auto byte:page) if(byte!=0xff) return false;
         }
