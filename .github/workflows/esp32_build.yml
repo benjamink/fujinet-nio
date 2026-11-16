@@ -1,0 +1,57 @@
+name: ESP32 build
+
+# Compile the firmware for ESP32 boards on every pull request. The POSIX unit
+# tests never build src/platform/esp32/, so a change to shared code (a new enum
+# value that the ESP32 channel factory must handle, say) broke every ESP32 board
+# without any check failing. The boards below cover the channel paths: RS232 and
+# CDC, Atari SIO, and USB CDC.
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  esp32:
+    name: ESP32 ${{ matrix.board }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        board:
+          - fujibus-gpio-rs232-cdc-log-s3-wroom-1-n16r8
+          - atari-nio-fujibus-sio-gpio-fujinet-v1-16mb
+          - fujibus-usbcdc-freenove-s3-wroom-1-n16r8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y -o Acquire::Retries=3 python3-venv cmake ninja-build
+
+      # PlatformIO and the ESP-IDF toolchain are several gigabytes; keep them
+      # between runs. The key follows the files that pin their versions.
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini', 'pio-build/ini/**', 'dependencies.lock') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      # -s writes platformio.local.ini and sdkconfig.local.defaults for the
+      # board; -b builds it.
+      - name: Set up board
+        run: ./build.sh -s ${{ matrix.board }}
+
+      - name: Build
+        run: ./build.sh -b
