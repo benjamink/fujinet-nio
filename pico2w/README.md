@@ -253,12 +253,31 @@ TLS 1.2 supports ECDHE RSA/ECDSA with P-256/P-384, 16 KiB records, two concurren
 TLS connections and a 15-second handshake deadline. Certificate configuration
 outlives the connection; callbacks are detached before close/abort frees state.
 
-Default platform trust is the committed ISRG Root X1 certificate, **not a full
-browser/system CA store**. Choose a maintained PEM bundle with
-`-DNIO_PICO_CA_BUNDLE=/absolute/path/roots.pem` when other roots are required.
-`-DFN_HTTPS_TEST_CA=ON` trusts only the existing FujiNet test CA;
-`-DFN_HTTPS_TEST_CA_ADDITIVE=ON` adds it to the platform bundle. These options are
+Platform trust is the **Mozilla root store** (114 roots, 121 KB of flash), packed by
+`pico2w/tools/make_ca_bundle.py` from `pico2w/certs/mozilla-roots.pem` (curl's published extract:
+source, date and hash in `pico2w/certs/README.md`). The device does not parse the set: mbedTLS is
+given a callback (`MBEDTLS_X509_TRUSTED_CERTIFICATE_CALLBACK`) that, while verifying a chain,
+looks the issuer's name up in an index sorted by a hash of each subject and parses only the
+matching root (`detail/ca_bundle.h`, `tls_trust.cpp`). Verification adds 6.6 to 13.9 KB of heap per
+handshake in native measurements, not the 280 KB parsing 114 roots would. An invalid bundle makes
+TLS open fail; nothing is ever trusted by default. The generator drops roots this mbedTLS cannot
+use, and reports why: signatures with SHA-1 or MD5, RSASSA-PSS, EC curves other than P-256/P-384,
+RSA above 4096 bits, and roots expired at the snapshot date (4 of 118 in the current set).
+
+Trust matching is by exact subject bytes, as the issuer field of a chain element names it. A
+CA that re-encodes its own name differently between a root and the certificates it signs would
+not be found; none of the twelve major sites tested is affected.
+
+`-DNIO_PICO_CA_BUNDLE=/absolute/path/roots.pem` (and `-DNIO_PICO_CA_DATE=YYYY-MM-DD`, its
+snapshot date) substitute another PEM. `-DFN_HTTPS_TEST_CA=ON` trusts only the existing FujiNet
+test CA; `-DFN_HTTPS_TEST_CA_ADDITIVE=ON` adds it to the platform roots. These options are
 mutually exclusive. There is no verification-disabled fallback.
+
+The firmware config enables `MBEDTLS_SHA384_C`. It is separate from SHA-512 in mbedTLS 3, and
+without it every SHA-384-signed certificate fails to parse. Most current intermediates (Google
+WE1/WE2, Sectigo, SSL.com, Microsoft, ISRG Root YE) are, so no HTTPS site that uses them can be
+verified however good the trust store is. The native tests pin this: they parse every
+certificate of twelve real server chains and verify them.
 
 Certificate validity checks are enabled. Set the clock through the existing
 ClockService SetTime API after every boot; until then TLS open returns NotReady.
@@ -333,9 +352,22 @@ native projects outside the repository:
   actual SDK mbedTLS and firmware configuration for trusted/wrong-host/unknown-CA/
   future/expired certificates, entropy boundaries and Pico clock progression.
 - `tests/pico-tls-adapter` → `/tmp/nio-pico-tls-adapter-tests`: three builds test
-  default/test-only/additive trust selection, hostname setup, fail-closed
-  verification/time, callback detachment, partial writes, limits and timeout,
-  plus receive credit/refusal/replay/EOF/error: 5 cases / 58 assertions per build.
+  default/test-only/additive trust selection (which sources the connection is anchored in),
+  hostname setup, fail-closed verification/time, callback detachment, partial writes, limits and
+  timeout, plus receive credit/refusal/replay/EOF/error: 5 cases per build. Three more builds
+  use a deliberately invalid bundle and check that TLS refuses to connect.
+- `tests/pico-ca` → `/tmp/nio-pico-ca-tests`: the trusted-root bundle. One target tests the
+  format and lookup with synthetic bundles (malformed, cross-signed, a constructed hash
+  collision, every single-byte corruption). The other builds the SDK's real mbedTLS with the
+  firmware configuration and runs the production lookup against the full Mozilla bundle:
+  every bundled root parses with the subject the index says, twelve real server chains (Let's
+  Encrypt, Google, GitHub, Cloudflare, Amazon, Microsoft, Wikipedia, Mozilla, Apple, python.org,
+  kernel.org, example.com) verify, and untrusted-root, wrong-hostname, expired, not-yet-valid,
+  tampered-signature, missing-intermediate and no-trust cases are refused, with a counting
+  allocator checking nothing leaks, including under injected allocation failures at every
+  point. The chains were captured on 2026-11-16 and are verified at that date.
+- `tests/test_pico_ca_bundle.py` (`python3 -m unittest discover -s tests -p 'test_pico_*.py'`):
+  the bundle generator's filtering, layout and determinism.
 
 For example, `cmake -S tests/pico-http -B /tmp/nio-pico-http-tests`, then
 `cmake --build /tmp/nio-pico-http-tests -j8` and

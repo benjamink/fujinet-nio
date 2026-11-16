@@ -35,9 +35,22 @@ set(PICO_CXX_ENABLE_RTTI 1)        # dynamic_cast on devices, as on ESP32
 pico_sdk_init()
 
 set(NIO ${CMAKE_CURRENT_LIST_DIR}/..)
-set(NIO_PICO_CA_BUNDLE "${CMAKE_CURRENT_LIST_DIR}/certs/isrg-root-x1.pem" CACHE FILEPATH "PEM platform CA roots")
-file(READ "${NIO_PICO_CA_BUNDLE}" NIO_PICO_CA_PEM)
-configure_file(trust_roots.h.in generated/trust_roots.h @ONLY)
+# Platform trust: the Mozilla roots, packed by tools/make_ca_bundle.py into a flash bundle that
+# the device searches by issuer name (see src/platform/pico/detail/ca_bundle.h). NIO_PICO_CA_DATE
+# is the snapshot date of the PEM; roots the device's mbedTLS cannot use, or that had expired by
+# then, are dropped at build time, so the same inputs always give the same bundle.
+set(NIO_PICO_CA_BUNDLE "${CMAKE_CURRENT_LIST_DIR}/certs/mozilla-roots.pem" CACHE FILEPATH "PEM platform CA roots")
+set(NIO_PICO_CA_DATE "2026-11-05" CACHE STRING "Snapshot date of the CA PEM, YYYY-MM-DD")
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(NIO_CA_BUNDLE_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/ca_bundle_data.h")
+add_custom_command(
+    OUTPUT "${NIO_CA_BUNDLE_HEADER}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    COMMAND ${Python3_EXECUTABLE} -I "${CMAKE_CURRENT_LIST_DIR}/tools/make_ca_bundle.py"
+            "${NIO_PICO_CA_BUNDLE}" --header "${NIO_CA_BUNDLE_HEADER}" --now "${NIO_PICO_CA_DATE}"
+    DEPENDS "${NIO_PICO_CA_BUNDLE}" "${CMAKE_CURRENT_LIST_DIR}/tools/make_ca_bundle.py"
+    COMMENT "Packing the trusted-root bundle"
+    VERBATIM)
 # FN_LOG* compile to nothing unless FN_DEBUG is defined (as on POSIX Debug and ESP32
 # debug builds). Turn it on to get logs and the boot banner on UART0 (GPIO0 TX).
 option(FN_DEBUG "Compile FN_LOG* to UART0 stdio" OFF)
@@ -81,6 +94,7 @@ list(APPEND NIO_PICO_PLATFORM_SOURCES
 
 # Core 0 owns NIO/network; the fixed core 1 worker owns USB.
 add_executable(fujinet_nio_pico2w
+    ${NIO_CA_BUNDLE_HEADER}
     ${NIO}/src/app/main_pico.cpp
     ${NIO}/src/app/console_engine.cpp
     ${NIO}/src/app/console_commands.cpp

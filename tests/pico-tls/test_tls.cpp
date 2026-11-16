@@ -30,7 +30,7 @@ TEST_CASE("Pico mbedTLS policy verifies chain hostname and validity period") {
     Certificate root,server,unrelated;
     REQUIRE(root.load("/integration-tests/certs/ca.crt")==0);
     REQUIRE(server.load("/integration-tests/certs/server.crt")==0);
-    REQUIRE(unrelated.load("/pico2w/certs/isrg-root-x1.pem")==0);
+    REQUIRE(unrelated.load("/tests/pico-tls/fixtures/isrg-root-x1.pem")==0);
     std::uint32_t flags=0;
     CHECK(mbedtls_x509_crt_verify(&server.crt,&root.crt,nullptr,"localhost",&flags,nullptr,nullptr)==0);
     CHECK(flags==0);

@@ -23,6 +23,7 @@
 #define MBEDTLS_MD_C
 #define MBEDTLS_SHA256_C
 #define MBEDTLS_SHA512_C
+#define MBEDTLS_SHA384_C // separate from SHA512 in mbedTLS 3: without it every SHA-384-signed certificate (most current intermediates) fails to parse
 #define MBEDTLS_BIGNUM_C
 #define MBEDTLS_OID_C
 #define MBEDTLS_ASN1_PARSE_C
@@ -40,6 +41,7 @@
 #define MBEDTLS_BASE64_C
 #define MBEDTLS_X509_USE_C
 #define MBEDTLS_X509_CRT_PARSE_C
+#define MBEDTLS_X509_TRUSTED_CERTIFICATE_CALLBACK // roots are looked up by issuer, not parsed up front
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED
 #define MBEDTLS_SSL_TLS_C

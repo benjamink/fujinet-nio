@@ -2,7 +2,7 @@
 #include "fake_lwip.h"
 #include "mbedtls/ssl.h"
 #include <string>
-struct altcp_tls_config { std::string roots; };
+struct altcp_tls_config {};
 struct altcp_pcb {
     void* arg=nullptr;
     err_t(*recv)(void*,altcp_pcb*,pbuf*,err_t)=nullptr;
@@ -14,13 +14,15 @@ struct altcp_pcb {
 };
 namespace tls_fake {
 inline std::vector<std::unique_ptr<altcp_pcb>> pcbs;
-inline std::string roots;
+inline bool config_had_roots=false;           // trust no longer rides on the config
+inline bool trust_bundle=false,trust_extra=false; // what install_trust was given
+inline unsigned installs=0;
 inline unsigned configs=0;
 inline bool valid_time=true,close_mem=false;
 }
 inline altcp_tls_config* altcp_tls_create_config_client(const std::uint8_t* p,std::size_t n) {
-    tls_fake::roots.assign(reinterpret_cast<const char*>(p),n-1); ++tls_fake::configs;
-    return new altcp_tls_config{tls_fake::roots};
+    tls_fake::config_had_roots=(p!=nullptr || n!=0); ++tls_fake::configs;
+    return new altcp_tls_config{};
 }
 inline void altcp_tls_free_config(altcp_tls_config* p) { --tls_fake::configs; delete p; }
 inline altcp_pcb* altcp_tls_new(altcp_tls_config*,int) { tls_fake::pcbs.push_back(std::make_unique<altcp_pcb>()); return tls_fake::pcbs.back().get(); }

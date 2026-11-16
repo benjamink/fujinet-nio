@@ -4,7 +4,8 @@
 #include "fujinet/net/https_trust_config.h"
 #include "fujinet/net/test_ca_cert.h"
 #include "fujinet/platform/time.h"
-#include "trust_roots.h"
+#include "ca_bundle_data.h"
+#include "detail/tls_trust.h"
 #include "pico/cyw43_arch.h"
 #include "pico/time.h"
 #include "lwip/altcp_tls.h"
@@ -19,12 +20,18 @@ namespace {
 using io::StatusCode;
 struct Lock { Lock() { cyw43_arch_lwip_begin(); } ~Lock() { cyw43_arch_lwip_end(); } };
 unsigned connections=0;
+// The platform roots, in flash. Validated on first use; an invalid bundle trusts nothing.
+const detail::CaBundle& platform_bundle() {
+    static const detail::CaBundle bundle(ca_bundle,ca_bundle_size);
+    return bundle;
+}
 mbedtls_time_t tls_time(mbedtls_time_t* out) {
     auto value=static_cast<mbedtls_time_t>(unix_time_seconds()); if(out) *out=value; return value;
 }
 class TlsProtocol final : public io::INetworkProtocol {
     altcp_pcb* pcb_=nullptr;
     altcp_tls_config* config_=nullptr;
+    detail::TrustSources trust_;   // read by mbedTLS during the handshake: lives as long as the connection
     detail::ByteRing<16384> rx_;
     bool counted_=false, connected_=false, eof_=false;
     StatusCode error_=StatusCode::Ok;
@@ -77,15 +84,24 @@ public:
         if(connections>=2) return StatusCode::DeviceBusy;
         ++connections; counted_=true;
         mbedtls_platform_set_time(tls_time);
-        std::string roots;
-        if(net::https_trust_policy()!=net::HttpsTrustPolicy::TestCaOnly) roots=platform_roots;
-        if(net::https_trust_policy()!=net::HttpsTrustPolicy::PlatformDefault) roots+=net::test_ca_cert_pem;
-        config_=altcp_tls_create_config_client(reinterpret_cast<const std::uint8_t*>(roots.c_str()),roots.size()+1);
+        // Trust is a lookup, not a parsed list: no roots go into the config, and install_trust
+        // below anchors the connection in these sources.
+        const auto policy=net::https_trust_policy();
+        trust_={};
+        if(policy!=net::HttpsTrustPolicy::TestCaOnly) {
+            const auto& bundle=platform_bundle();
+            if(!bundle.valid()) { release(); return StatusCode::IOError; } // fail closed
+            trust_.bundle=&bundle;
+        }
+        if(policy!=net::HttpsTrustPolicy::PlatformDefault) {
+            trust_.extra_pem=net::test_ca_cert_pem; trust_.extra_pem_len=sizeof(net::test_ca_cert_pem);
+        }
+        config_=altcp_tls_create_config_client(nullptr,0);
         if(!config_) { release(); return StatusCode::IOError; }
         pcb_=altcp_tls_new(config_,IPADDR_TYPE_V4);
         if(!pcb_) { release(); return StatusCode::DeviceBusy; }
         auto* ssl=static_cast<mbedtls_ssl_context*>(altcp_tls_context(pcb_));
-        if(!ssl || mbedtls_ssl_set_hostname(ssl,host.c_str())!=0) { release(); return StatusCode::IOError; }
+        if(!ssl || mbedtls_ssl_set_hostname(ssl,host.c_str())!=0 || !detail::install_trust(ssl,trust_)) { release(); return StatusCode::IOError; }
         altcp_arg(pcb_,this); altcp_recv(pcb_,received); altcp_err(pcb_,failed);
         start_=time_us_64()/1000;
         if(altcp_connect(pcb_,&ip,number,connected)!=ERR_OK) { release(); return StatusCode::IOError; }

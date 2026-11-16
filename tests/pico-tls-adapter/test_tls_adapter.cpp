@@ -4,12 +4,24 @@
 #include "pico/cyw43_arch.h"
 #include <array>
 #include "../../src/platform/pico/detail/tls_protocol.h"
+#include "../../src/platform/pico/detail/tls_trust.h"
+#include "fujinet/net/test_ca_cert.h"
 #include "fujinet/net/tcp_network_protocol_common.h"
 #include "fujinet/net/https_trust_config.h"
 #include "fujinet/platform/time.h"
 namespace fujinet::platform {
 bool time_is_valid() { return tls_fake::valid_time; }
 std::uint64_t unix_time_seconds() { return tls_fake::valid_time ? 1794744000 : 0; }
+}
+namespace fujinet::platform::pico::detail {
+// The mbedTLS side is tested against real mbedTLS in tests/pico-ca; here it only records what the
+// adapter asked trust to be anchored in.
+bool install_trust(mbedtls_ssl_context*,const TrustSources& sources) {
+    ++tls_fake::installs;
+    tls_fake::trust_bundle=sources.bundle!=nullptr && sources.bundle->valid();
+    tls_fake::trust_extra=sources.extra_pem!=nullptr && sources.extra_pem_len==sizeof(fujinet::net::test_ca_cert_pem);
+    return true;
+}
 }
 namespace fujinet::platform::pico {
 int resolve_tls_address(const char*,const char*,ip_addr_t& ip,std::uint16_t& port) { ip.addr=1; port=443; return 0; }
@@ -21,8 +33,10 @@ using namespace fujinet;
 TEST_CASE("Pico TLS adapter installs hostname and selected trust roots before handshake") {
     tls_fake::valid_time=true; auto p=platform::pico::make_tls_protocol(); io::NetworkOpenRequest r; r.url="tls://example.org:443";
     REQUIRE(p->open(r)==io::StatusCode::Ok); auto* pcb=tls_fake::pcbs.back().get(); CHECK(pcb->ssl.hostname=="example.org");
-    CHECK((tls_fake::roots.find("PLATFORM ROOT")!=std::string::npos)==(net::https_trust_policy()!=net::HttpsTrustPolicy::TestCaOnly));
-    CHECK((tls_fake::roots.find("BEGIN CERTIFICATE")!=std::string::npos)==(net::https_trust_policy()!=net::HttpsTrustPolicy::PlatformDefault));
+    // Trust is anchored by lookup on the connection, not by roots parsed into the config.
+    CHECK_FALSE(tls_fake::config_had_roots); CHECK(tls_fake::installs>=1);
+    CHECK(tls_fake::trust_bundle==(net::https_trust_policy()!=net::HttpsTrustPolicy::TestCaOnly));
+    CHECK(tls_fake::trust_extra==(net::https_trust_policy()!=net::HttpsTrustPolicy::PlatformDefault));
     CHECK(pcb->connected(pcb->arg,pcb,ERR_OK)==ERR_OK);
     const std::string bytes(30,'x'); std::uint16_t written=0;
     CHECK(p->write_body(0,reinterpret_cast<const std::uint8_t*>(bytes.data()),bytes.size(),written)==io::StatusCode::Ok); CHECK(written==17);
@@ -69,4 +83,19 @@ TEST_CASE("Pico TLS handshake timeout crosses the 32-bit millisecond boundary sa
     fake::now=UINT64_C(0xffffffff)-5;tls_fake::valid_time=true;REQUIRE(protocol->open(r)==io::StatusCode::Ok);
     fake::now+=10;protocol->poll();io::NetworkInfo info;CHECK(protocol->info(info)==io::StatusCode::Ok);
     fake::now+=15000;protocol->poll();CHECK(protocol->info(info)==io::StatusCode::Timeout);
+}
+TEST_CASE("Pico TLS adapter fails closed when the platform bundle is invalid") {
+    // Built with FN_TEST_BAD_BUNDLE (the index hash is wrong). Whenever platform roots are
+    // wanted the adapter must refuse to connect, never connect unverified; with the test CA
+    // alone the bundle is not used.
+    auto p=platform::pico::make_tls_protocol();io::NetworkOpenRequest r;r.url="tls://example.org:443";
+    tls_fake::valid_time=true;const auto installs=tls_fake::installs;
+    if(net::https_trust_policy()==net::HttpsTrustPolicy::TestCaOnly) {
+        CHECK(p->open(r)==io::StatusCode::Ok);
+    } else {
+        CHECK(p->open(r)==io::StatusCode::IOError);
+        CHECK(tls_fake::installs==installs);   // no connection was created, so nothing connected unverified
+        CHECK(tls_fake::configs==0);
+    }
+    p->close();
 }

@@ -13,7 +13,7 @@ mbedtls_ms_time_t mbedtls_ms_time(void) { return 0; }
 static int rng(void *p,unsigned char *o,size_t n) { (void)p; while(n--) *o++=0x42; return 0; }
 int main(void) {
     mem_init(); altcp_mbedtls_mem_init();
-    char pem[8192]; FILE *file=fopen(NIO_ROOT "/pico2w/certs/isrg-root-x1.pem","rb");
+    char pem[8192]; FILE *file=fopen(NIO_ROOT "/tests/pico-tls/fixtures/isrg-root-x1.pem","rb");
     if (!file) return 1;
     size_t length=fread(pem,1,sizeof(pem)-1,file); fclose(file); pem[length]=0;
     mbedtls_x509_crt roots[2]; altcp_mbedtls_state_t *states[2];
