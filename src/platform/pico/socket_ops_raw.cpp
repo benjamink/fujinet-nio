@@ -17,7 +17,10 @@ static_assert(FN_PICO_TCP_WINDOW_BYTES >= FN_PICO_TLS_RECORD_BYTES + FN_PICO_TLS
 
 namespace fujinet::net {
 // Deliberately private address representation; shared code only carries pointers.
-struct AddrInfo { ip_addr_t ip{}; std::uint16_t port = 0; int type = 1; };
+// type is always set where an AddrInfo is made (1 stream, 2 datagram). Its default is 0: a
+// non-zero default would put every table that holds AddrInfo (tens of KB of queues and
+// rings) into initialized data, stored in the firmware image, instead of zeroed .bss.
+struct AddrInfo { ip_addr_t ip{}; std::uint16_t port = 0; int type = 0; };
 namespace {
 using namespace platform::pico::detail;
 struct Lock { Lock() { cyw43_arch_lwip_begin(); } ~Lock() { cyw43_arch_lwip_end(); } };
@@ -99,7 +102,7 @@ struct TcpState {
     ByteRing<FN_PICO_TCP_WINDOW_BYTES> rx;
     bool connected = false, eof = false, listening = false;
     int error = 0;
-    std::array<int, 4> accepted{{-1, -1, -1, -1}};
+    std::array<int, 4> accepted{}; // handles of accepted children; 0 is none (handles start at 1)
     unsigned accept_head=0, accept_count=0;
 };
 HandleTable<TcpState, FN_PICO_RAW_TCP_HANDLES> tcp_states;
@@ -141,7 +144,7 @@ err_t on_tcp_accept(void* arg, tcp_pcb* pcb, err_t e) {
 void close_tcp(int fd) {
     auto* s = tcp_states.get(fd);
     if (!s) return;
-    for (int pending : s->accepted) if (pending >= 0) close_tcp(pending);
+    for (int pending : s->accepted) if (pending > 0) close_tcp(pending);
     if (s->pcb) {
         tcp_arg(s->pcb, nullptr);
         if (s->listening) tcp_accept(s->pcb, nullptr);
@@ -196,7 +199,7 @@ public:
         if (!s || !s->listening) return fail(EINVAL);
         if (s->accept_count) {
             const int accepted=s->accepted[s->accept_head];
-            s->accepted[s->accept_head]=-1;
+            s->accepted[s->accept_head]=0;
             s->accept_head=(s->accept_head+1)%s->accepted.size();
             --s->accept_count;
             auto* child=tcp_states.get(accepted);
@@ -253,10 +256,13 @@ public:
     int err_host_unreach() const noexcept override { return EHOSTUNREACH; }
     ADDRESS_OPS(1)
 };
+// Datagrams one UDP socket queues; more are dropped. Reported through recv_queue_depth() so
+// senders (TNFS read-ahead) keep no more replies in flight than fit.
+constexpr unsigned kUdpDepth = 4;
 struct UdpState {
     udp_pcb* pcb = nullptr;
-    DatagramQueue<1472,4> rx;
-    std::array<AddrInfo,4> peers{};
+    DatagramQueue<1472,kUdpDepth> rx;
+    std::array<AddrInfo,kUdpDepth> peers{};
     unsigned head=0, count=0;
 };
 HandleTable<UdpState,4> udp_states;
@@ -264,12 +270,13 @@ void udp_received(void* arg, udp_pcb*, pbuf* p, const ip_addr_t* ip, u16_t port)
     auto& s=*static_cast<UdpState*>(arg);
     if (p->tot_len <= 1472 && !s.rx.full()) {
         s.rx.emplace(p->tot_len, [p](void* out, std::size_t n) { pbuf_copy_partial(p,out,n,0); });
-        s.peers[(s.head+s.count)%4] = AddrInfo{*ip,port,2}; ++s.count;
+        s.peers[(s.head+s.count)%kUdpDepth] = AddrInfo{*ip,port,2}; ++s.count;
     }
     pbuf_free(p);
 }
 class RawUdp final : public IUdpSocketOps {
 public:
+    std::size_t recv_queue_depth() const override { return kUdpDepth; }
     int socket(int family,int type,int protocol) override {
         Lock lock; if(family!=4 || type!=2 || protocol!=17) return fail(EINVAL);
         const int fd=udp_states.allocate(); if(fd<0) return fail(EMFILE);
@@ -297,7 +304,7 @@ public:
         Lock lock; auto* s=udp_states.get(fd); if(!s) return fail(EBADF);
         if(s->rx.empty()) return fail(EAGAIN);
         if(addr && len) { const auto& a=s->peers[s->head]; std::memcpy(addr,&a,std::min<std::size_t>(*len,sizeof(a))); *len=sizeof(a); }
-        s->head=(s->head+1)%4; --s->count; return s->rx.pop(out,n);
+        s->head=(s->head+1)%kUdpDepth; --s->count; return s->rx.pop(out,n);
     }
     SSize recv(int fd,void* p,std::size_t n) override { return recvfrom(fd,p,n,nullptr,nullptr); }
     bool poll_readable(int fd) override { Lock lock; auto* s=udp_states.get(fd); return s && !s->rx.empty(); }

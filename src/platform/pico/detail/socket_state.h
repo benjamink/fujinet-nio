@@ -33,28 +33,32 @@ public:
     }
 };
 
+// Everything here is zero in its initial state (slot handle 0 means free, and handles are
+// issued from 1), so a static table lives in zeroed .bss. A non-zero default, such as -1
+// for "free", would store the whole table, queues and rings included, in the firmware image.
 template<class T, std::size_t Capacity> class HandleTable {
-    struct Slot { int handle = -1; T value{}; };
+    struct Slot { int handle = 0; T value{}; };
     std::array<Slot, Capacity> slots_{};
-    int next_ = 1;
+    int issued_ = 0;
 public:
     int allocate() {
         // Never reuse a handle, even after close. Exhaustion fails safely.
-        if (next_ == std::numeric_limits<int>::max()) return -1;
-        for (auto& s : slots_) if (s.handle < 0) {
+        if (issued_ == std::numeric_limits<int>::max() - 1) return -1;
+        for (auto& s : slots_) if (s.handle == 0) {
             std::destroy_at(&s.value); std::construct_at(&s.value);
-            s.handle = next_++;
+            s.handle = ++issued_;
             return s.handle;
         }
         return -1;
     }
     T* get(int handle) {
-        if (handle < 0) return nullptr;
+        if (handle <= 0) return nullptr;
         for (auto& s : slots_) if (s.handle == handle) return &s.value;
         return nullptr;
     }
     void release(int handle) {
-        for (auto& s : slots_) if (s.handle == handle) { s.handle = -1; std::destroy_at(&s.value); std::construct_at(&s.value); return; }
+        if (handle <= 0) return;
+        for (auto& s : slots_) if (s.handle == handle) { s.handle = 0; std::destroy_at(&s.value); std::construct_at(&s.value); return; }
     }
 };
 

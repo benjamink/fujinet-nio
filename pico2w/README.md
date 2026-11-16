@@ -22,12 +22,17 @@ lwIP, mbedTLS and CYW43 submodules. The first configure downloads picotool.
 The default build type is `MinSizeRel` (`-Os`).
 `FN_LOG*` compile to nothing unless `FN_DEBUG` is defined, as on the other targets, so
 the default image is silent on UART0. Configure with `-DFN_DEBUG=ON` to get the boot
-banner and logs on UART0 (GPIO0 TX / GPIO1 RX, 115200 baud); it adds about 19.5 KB. The result is
+banner and logs on UART0 (GPIO0 TX / GPIO1 RX, 115200 baud); it adds about 19.5 KB.
+
+**Do not measure performance on a `FN_DEBUG` build.** It hex-dumps up to 512 bytes of every
+FujiBus reply and request payload to UART0, which at 115200 baud takes about 250 ms per
+reply. On hardware this made TCP reads look 100 times slower than they are (about 280 ms per
+read against 4 ms, and 5 KB/s against 200 KB/s). Use the default build for any timing. The result is
 `/tmp/nio-pico2w-build/fujinet_nio_pico2w.uf2`.
 
 ## Size and acceptance
 
-The current build uses **1158152 bytes flash** and **349740 bytes static RAM**.
+The current build uses **1052624 bytes flash** and **349740 bytes static RAM**.
 Core 0 reserves a 16 KiB stack and core 1 reserves 4 KiB. This is a build measurement, not a runtime peak:
 core objects, protocol objects, TLS records/certificates and queues also allocate
 from the heap. A live TLS connection's peak heap and stack usage remains unknown.
@@ -52,6 +57,14 @@ See the ordered measurements below for exact baselines and component totals.
 | Time, logging | Shared with `src/platform/posix` (portable newlib code) |
 
 ### Sockets
+
+Each UDP socket queues **four** datagrams and drops the rest. The UDP channel reports that
+depth (`recv_queue_depth()`), and the TNFS client keeps no more read-ahead requests in flight
+than that, so a burst of replies is never lost. Without it a TNFS read took about 108 ms per
+512-byte block (a 184 KB file in 39 s) because half of each read-ahead burst was dropped and
+the client waited out a 400 ms timeout; with room for the replies it takes 1.7 s. The tables
+holding the sockets must start all-zero so they live in `.bss`: a non-zero default (a `-1`
+"free" marker) put 106 KB of them in the firmware image.
 
 Raw lwIP (`NO_SYS=1`) avoids a scheduler and BSD socket emulation. Foreground
 calls acquire the CYW43 lwIP lock; callbacks run under the background dispatcher's
@@ -123,6 +136,7 @@ so use `arm-none-eabi-size -A` and the linker map instead.
 | TLS allocator pool prerequisite | 1153056 | 328816 | 2048 / 16384 |
 | Dual-core USB worker | 1156328 | 349740 | 2048 / 20480 |
 | Console `format` command | 1158152 | 349740 | 2048 / 20480 |
+| Socket tables in `.bss`, not `.data` | 1052624 | 349740 | 2048 / 20480 |
 
 Map component totals (flash/static RAM input bytes; excludes linker alignment):
 
