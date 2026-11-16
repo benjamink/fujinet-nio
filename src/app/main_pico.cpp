@@ -2,6 +2,7 @@
 //
 // A trimmed counterpart of main_posix.cpp: core, config, devices, Wi-Fi and the
 // cooperative tick loop. What is stubbed is listed in pico2w/README.md.
+#include <cstdint>
 #include <cstdio>
 #include <memory>
 #include <string_view>
@@ -113,11 +114,20 @@ int main()
     console.set_format_handler([](std::string_view name) {
         return name == "flash" && platform::pico::format_flash_filesystem();
     });
+    // Debug aid: name the loop phase that stalls. FN_LOGW compiles away without FN_DEBUG.
+    constexpr std::uint32_t kSlowPhaseUs = 20000;
     for (;;) {
+        const std::uint32_t t0 = time_us_32();
         platform::pico::service_console();
         console.step(0);
+        const std::uint32_t t1 = time_us_32();
         wifi.poll();
+        const std::uint32_t t2 = time_us_32();
         core.tick();
+        const std::uint32_t t3 = time_us_32();
+        if (t1 - t0 > kSlowPhaseUs) FN_LOGW(TAG, "slow console phase: %lu us", static_cast<unsigned long>(t1 - t0));
+        if (t2 - t1 > kSlowPhaseUs) FN_LOGW(TAG, "slow wifi.poll: %lu us", static_cast<unsigned long>(t2 - t1));
+        if (t3 - t2 > kSlowPhaseUs) FN_LOGW(TAG, "slow core.tick: %lu us", static_cast<unsigned long>(t3 - t2));
         sleep_ms(1);
     }
 }
