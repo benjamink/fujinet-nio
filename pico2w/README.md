@@ -131,30 +131,46 @@ every performance figure below is from the release build, because debug builds a
 - Boot, the dual-core split (core 1 USB, core 0 everything else), USB CDC enumeration and
   FujiBus over it, and the UART0 console including `format`.
 - LittleFS formatting, persistence of `fujinet.yaml` across reboots, and recovery of a board
-  whose last flash page was not blank.
+  whose last flash page was not blank. A 3 KB app-store write (a flash commit) takes about 50 ms
+  with a worst case of 100 ms, which is how long USB pauses; readback was identical.
 - Wi-Fi join with credentials set from the console and kept across reboots, DHCP and DNS
   (1.3 ms ping with power save off, 150 ms with the driver default).
 - TCP and HTTP: 64 KiB transfers byte-exact (about 210 KB/s over TCP, 90 to 160 KB/s over HTTP).
+  POST, PUT and DELETE with bodies up to 12 KB echo back byte-identical; redirects work
+  (same-origin and HTTP to HTTPS, at most 3, HTTPS to HTTP refused) when the request sets the
+  follow-redirects flag.
 - HTTPS: 13 real sites complete a handshake and return an HTTP status (Let's Encrypt, Google,
   GitHub and Gist, Cloudflare, Amazon, Microsoft, Wikipedia, Mozilla, Apple, python.org,
   kernel.org and example.com), as does the valid badssl.com control; badssl's untrusted-root,
   wrong-host, expired and self-signed hosts are refused.
+- Large HTTPS downloads: 20 consecutive 2 MB files and 5 of 256 KB from a local server, every
+  checksum correct, at about 119 KB/s; github.com's 525 KB home page in about 8 s.
 - TNFS over UDP against a LAN tnfsd: reads byte-exact for chunk sizes 512 to 4096 (about
-  60 KB/s with the read-ahead held to the 4-datagram queue).
+  60 KB/s with the read-ahead held to the 4-datagram queue), and a 100 KB write read back identical.
+- Memory high-water marks after the 40 MB TLS soak (`pico.mem` on the console): core 0 stack
+  5.2 of 16 KB, core 1 stack 0.4 of 4 KB, lwIP heap (all TLS allocations) 44 of 128 KB with no
+  failed allocation, newlib heap arena 88 of 158 KB.
 
 **Not yet verified on hardware**
 
-- TNFS writes, HTTP uploads (POST/PUT) and HTTPS redirects.
-- Peak heap and stack during a TLS handshake (native tests measure 7 to 14 KB of heap per
-  certificate verification; the real peak, and core 1's 4 KiB stack headroom, are unmeasured).
-- How long USB stalls while core 0 erases or programs flash, and power-loss recovery.
-- Long soak, Wi-Fi drop and rejoin, and USB unplug and replug under traffic.
+- Wi-Fi drop and rejoin, and USB unplug and replug under traffic; a soak of hours.
+- Power-loss recovery of flash.
 - TLS 1.3-only servers (the build speaks TLS 1.2), SD over SPI (not implemented), and the
   optional UART transport, scan/BSSID selection and SNTP (not added).
 
 **Known limitation: HTTPS handshakes with elliptic-curve certificates are slow.** RSA-chained
-sites take 1.4 to 2.1 s, P-256 chains about 6.8 s and P-384 chains 9.8 to 11.6 s, because mbedTLS
-does the curve arithmetic in software at 150 MHz and is built for size.
+sites take 1.1 to 1.9 s, P-256 chains about 5.4 s and P-384 chains 7.7 to 9.0 s, because mbedTLS
+does the curve arithmetic in software at 150 MHz (they were 20% slower before mbedTLS's arithmetic
+was built `-O2`; see `NIO_PICO_MBEDTLS_OPT`). Resuming a session would skip the handshake for
+repeat connections to a host; it is not implemented.
+
+**Stress-testing TLS locally.** Public hosts rate-limit and drop connections, which makes a flaky
+download impossible to tell from a bug. Build with `-DFN_HTTPS_TEST_CA_ADDITIVE=ON` (trust the
+FujiNet test CA as well), run `scripts/start_test_services.sh http-fs`, put large files in
+`/tmp/fujinet-http-fs`, and fetch them with
+`./scripts/fujinet -p <port> net get --chunk 4096 --out f https://<host-ip>:18443/<file>` after
+`./scripts/fujinet -p <port> clock set`, comparing checksums. This is how the two stalls described
+under "TLS receive" were found; they failed 6 of 6 downloads before the fixes.
 
 ## Ordered port measurements (build verification only)
 
@@ -285,6 +301,21 @@ connect and verification flags are checked before marking the stream connected.
 TLS 1.2 supports ECDHE RSA/ECDSA with P-256/P-384, 16 KiB records, two concurrent
 TLS connections and a 15-second handshake deadline. Certificate configuration
 outlives the connection; callbacks are detached before close/abort frees state.
+
+**TLS receive.** The SDK adapter decrypts into pbufs and hands the application everything it has
+queued as one chain; a chain the application refuses (`ERR_MEM`) stays queued and is retried only on
+a poll tick or the next network packet. Two things made large downloads stall until the 15 s
+inactivity timeout, every time on a 2 MB file:
+
+- No poll callback was registered, and the adapter arms its poll tick only if the application has
+  one, so data refused at the end of a stream was never redelivered and the transfer stopped a few
+  hundred bytes short. `altcp_poll` is now registered (its body is empty; registering it is what
+  matters).
+- Refusing was itself the bug. With a 20 KiB TCP window the queued chain can be longer than the
+  16 KiB ring, so it could never be accepted even into an empty ring. The adapter now takes every
+  chain, moves what fits into the ring, keeps the rest and drains it as the application reads (the
+  credit for each byte is still returned as it is read, so the window behaves as before). Bytes
+  received before an error stay readable.
 
 Platform trust is the **Mozilla root store** (114 roots, 121 KB of flash), packed by
 `pico2w/tools/make_ca_bundle.py` from `pico2w/certs/mozilla-roots.pem` (curl's published extract:
