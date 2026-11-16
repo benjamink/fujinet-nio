@@ -96,6 +96,10 @@ inline void ip_reset_option(tcp_pcb* p,int o) { fake::live(p);p->options&=~o; }
 inline pbuf* pbuf_alloc(int,u16_t n,int) {
     fake::locked();auto* p=new pbuf;p->payload=new std::uint8_t[n];p->len=p->tot_len=n;return p;
 }
+inline void pbuf_cat(pbuf* head,pbuf* tail) {
+    pbuf* p=head;for(;p->next;p=p->next)p->tot_len=static_cast<u16_t>(p->tot_len+tail->tot_len);
+    p->tot_len=static_cast<u16_t>(p->tot_len+tail->tot_len);p->next=tail;
+}
 inline u16_t pbuf_free(pbuf* p) {
     fake::locked();u16_t count=0;
     while(p){auto* next=p->next;delete[] static_cast<std::uint8_t*>(p->payload);delete p;p=next;++count;++fake::freed_pbufs;}
