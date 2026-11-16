@@ -412,16 +412,21 @@ These tests exercise native logic and mocked hardware boundaries; they are not
 USB/radio/flash hardware or live-TLS peak measurements. Raw and LittleFS targets
 also pass AddressSanitizer/UndefinedBehaviorSanitizer (including vendor C).
 
-### Known intermittent test failure
+### A flaky test, found and fixed
 
-On 2026-11-16 the POSIX unit-test target (`fujinet-nio-tests`, ctest #1) failed once in a full
-`ctest` run, 3 seconds slower than usual, and passed in every one of the 6 runs after it (3 on
-its own, 3 in the full set) and when run directly (882 cases, 173548 assertions). It was not
-caught, so the cause is unknown. The one test with a threshold close to its measured value is
-`ImageTranslator: PNG, JPEG and GIF convert on the platform's kConvertStackBytes thread`: the
-GIF conversion used 41754 of its 49152 bytes of stack, and a stack-depth check that tight
-could move with load or layout. That is a candidate, not a finding. If it recurs, capture the
-doctest output with `ctest --output-on-failure` before re-running.
+`fujinet-nio-tests` failed now and then on CI and once on a developer machine (2026-11-16), always
+at `tests/test_network_device_tcp.cpp` in `TCP: Read preserves bytes across 64K stream and ring
+boundary` (CI runs on Oct 30, Nov 1 and Nov 16). An earlier note here blamed the image-translator
+stack check; that was a wrong guess.
+
+The test's ring is exactly full at the end of its stream, so its final read of the 14-byte marker
+could return a single byte, and the test then asked again at the same offset. That is a retry of the
+last read and is answered by replaying it, so the loop never advanced and ran out its 1.5 s deadline.
+It showed up only when the rest of the marker arrived late (Nagle's algorithm and the delayed ACK
+make that about 40 ms on an idle machine), reproduced about 1 run in 600 under heavy CPU load, and
+is a bug in the test, not in the product: a client continues at the offset where its last read ended.
+The test now does. It ran 6000 times under the same load with no failure, and a thread-free test
+pins the protocol rule it had broken.
 
 ### Measurement report and remaining acceptance
 

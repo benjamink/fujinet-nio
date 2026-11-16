@@ -651,6 +651,45 @@ TEST_CASE("TCP common: duplicate retry of last read replays bytes")
     CHECK(proto.read_body(0, wrong_size, sizeof(wrong_size), read, eof, more) == StatusCode::InvalidRequest);
 }
 
+TEST_CASE("TCP common: a short read is replayed at the same offset, and the next read continues after it")
+{
+    // A read returns what is buffered, which can be less than was asked. The reply to a repeat of
+    // that same request is the replay of the first (a client that lost it asks again), so it never
+    // yields more bytes. A client gets the rest by reading from the offset where the first ended.
+    MemoryTcpSocketOps ops;
+    ops.rx = {'a'};
+
+    fujinet::net::TcpNetworkProtocolCommon proto(ops);
+    fujinet::net::TcpNetworkProtocolCommon::Options opt{};
+    REQUIRE(proto.adopt_connected_socket(1, opt, "memory", 1) == StatusCode::Ok);
+
+    std::uint8_t buf[14] = {};
+    std::uint16_t read = 0;
+    bool eof = false;
+    bool more = false;
+    REQUIRE(proto.read_body(0, buf, sizeof(buf), read, eof, more) == StatusCode::Ok);
+    CHECK(read == 1);
+    CHECK(buf[0] == 'a');
+
+    ops.rx = {'a', 'b', 'c', 'd', 'e'};   // the rest arrives; the first byte was consumed
+    ops.rx_pos = 1;
+    proto.poll();
+
+    // The same request again is a retry: replayed, still one byte, however much has arrived since.
+    std::uint8_t again[14] = {};
+    read = 0;
+    REQUIRE(proto.read_body(0, again, sizeof(again), read, eof, more) == StatusCode::Ok);
+    CHECK(read == 1);
+    CHECK(again[0] == 'a');
+
+    // Continuing at offset 1 reads the rest.
+    std::uint8_t rest[13] = {};
+    read = 0;
+    REQUIRE(proto.read_body(1, rest, sizeof(rest), read, eof, more) == StatusCode::Ok);
+    REQUIRE(read == 4);
+    CHECK(std::string(reinterpret_cast<char*>(rest), read) == "bcde");
+}
+
 TEST_CASE("TCP common: read_ready is true while bytes are buffered, not before or after")
 {
     MemoryTcpSocketOps ops;
@@ -792,23 +831,37 @@ TEST_CASE("TCP: Read preserves bytes across 64K stream and ring boundary")
         dev.poll();
     }
 
-    ReadParsed rp;
+    // The ring is exactly full here (0xffff filler bytes plus the first marker byte fill its 64 KiB),
+    // so a read made before the rest of the marker has been pulled in returns only what is buffered,
+    // which can be a single byte. A read returns what is there; the client continues where the last
+    // read ended. Asking again at the same offset is a retry of that read and is answered by replaying
+    // it, so a loop that repeats the same request never advances: this test failed that way, about
+    // once in a few hundred runs on a loaded machine (the marker's remainder arrives later, behind
+    // Nagle's algorithm and the delayed ACK).
+    const std::uint32_t markerStart = readOff;
+    std::vector<std::uint8_t> got;
     REQUIRE(spin_poll_until(dev, [&] {
-        IOResponse rr = read_req(dev, deviceId, handle, readOff, static_cast<std::uint16_t>(marker.size()));
+        const std::uint16_t want = static_cast<std::uint16_t>(marker.size() - got.size());
+        IOResponse rr = read_req(dev, deviceId, handle, readOff, want);
         if (rr.status == StatusCode::NotReady) {
             return false;
         }
         REQUIRE(rr.status == StatusCode::Ok);
+        ReadParsed rp;
         REQUIRE(parse_read_response(rr, rp));
-        return rp.len == marker.size();
-    }, 1500));
+        REQUIRE(rp.len > 0);
+        CHECK(rp.offset == readOff);
+        got.insert(got.end(), rp.bytes.begin(), rp.bytes.end());
+        readOff += rp.len;
+        return got.size() == marker.size();
+    }, 5000));
 
-    CHECK(rp.offset == 0xffffu);
-    CHECK(rp.bytes == std::vector<std::uint8_t>(marker.begin(), marker.end()));
-    REQUIRE(rp.bytes.size() == marker.size());
+    CHECK(markerStart == 0xffffu);
+    REQUIRE(got.size() == marker.size());
+    CHECK(got == std::vector<std::uint8_t>(marker.begin(), marker.end()));
     for (std::size_t i = 0; i < marker.size(); ++i) {
         CAPTURE(i);
-        CHECK(rp.bytes[i] == static_cast<std::uint8_t>(marker[i]));
+        CHECK(got[i] == static_cast<std::uint8_t>(marker[i]));
     }
 
     CHECK(close_req(dev, deviceId, handle).status == StatusCode::Ok);
