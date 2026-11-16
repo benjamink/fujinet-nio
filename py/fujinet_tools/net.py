@@ -149,6 +149,48 @@ def _pkt_status_code(pkt: Optional[FujiPacket]) -> int:
     return int(pkt.params[0])
 
 
+def _accept_reply(match: Callable[[FujiPacket], bool]) -> Callable[[FujiPacket], bool]:
+    """Build the `accept` filter for a Read or Write reply.
+
+    Only an OK reply has a body to compare against the request. A NotReady or DeviceBusy reply
+    (which the retry loop must see, to ask again) and an error reply (which the caller must be
+    told about) carry no payload at all, so they can never match anything. A filter that
+    rejects them discards the very status it is waiting for, and the command then fails after
+    the full timeout with a misleading "No response". Accept every non-OK reply, and compare
+    only the OK ones.
+    """
+
+    def accept(pkt: FujiPacket) -> bool:
+        if _pkt_status_code(pkt) != 0:
+            return True
+        try:
+            return bool(match(pkt))
+        except Exception:
+            return False  # an OK reply that does not parse is not the reply we asked for
+
+    return accept
+
+
+def _accept_read_at(want_off: int) -> Callable[[FujiPacket], bool]:
+    return _accept_reply(lambda pkt: np.parse_read_resp(pkt.payload).offset == want_off)
+
+
+def _accept_read_for(want_handle: int, want_off: int) -> Callable[[FujiPacket], bool]:
+    def match(pkt: FujiPacket) -> bool:
+        rr = np.parse_read_resp(pkt.payload)
+        return rr.handle == want_handle and rr.offset == want_off
+
+    return _accept_reply(match)
+
+
+def _accept_write_for(want_handle: int, want_off: int) -> Callable[[FujiPacket], bool]:
+    def match(pkt: FujiPacket) -> bool:
+        wr = np.parse_write_resp(pkt.payload)
+        return wr.handle == want_handle and wr.offset == want_off
+
+    return _accept_reply(match)
+
+
 # ----------------------------------------------------------------------
 # Serial + FujiBusSession helpers
 # ----------------------------------------------------------------------
@@ -479,13 +521,6 @@ def cmd_net_read(args) -> int:
 
     with open_serial(args.port, args.baud, timeout_s=0.01) as ser:
 
-        def _accept_read_for_offset(want_off: int):
-            def _accept(pkt):
-                rr = np.parse_read_resp(pkt.payload)
-                return rr.offset == want_off
-
-            return _accept
-
         bus = FujiBusSession().attach(ser, debug=args.debug)
         pkt = _send_retry_not_ready(
             bus=bus,
@@ -495,7 +530,7 @@ def cmd_net_read(args) -> int:
             timeout=args.timeout,
             retries=2000,
             sleep_s=0.005,
-            accept=_accept_read_for_offset(args.offset),
+            accept=_accept_read_at(args.offset),
         )
         if pkt is None:
             print("No response")
@@ -544,13 +579,6 @@ def cmd_net_get(args) -> int:
         ]
 
     with open_serial(args.port, args.baud, timeout_s=0.01) as ser:
-
-        def _accept_read_for_offset(want_off: int):
-            def _accept(pkt):
-                rr = np.parse_read_resp(pkt.payload)
-                return rr.offset == want_off
-
-            return _accept
 
         bus = FujiBusSession().attach(ser, debug=args.debug)
 
@@ -646,7 +674,7 @@ def cmd_net_get(args) -> int:
                     timeout=args.timeout,
                     retries=5000,
                     sleep_s=0.005,
-                    accept=_accept_read_for_offset(offset),
+                    accept=_accept_read_at(offset),
                 )
                 if rpkt is None:
                     print("No response")
@@ -864,26 +892,6 @@ def cmd_net_send(args) -> int:
         handle = orr.handle
 
         try:
-
-            def _accept_write_for(want_handle: int, want_off: int):
-                def _accept(pkt):
-                    try:
-                        wr = np.parse_write_resp(pkt.payload)
-                    except Exception:
-                        return False
-                    return (wr.handle == want_handle) and (wr.offset == want_off)
-
-                return _accept
-
-            def _accept_read_for(want_handle: int, want_off: int):
-                def _accept(pkt):
-                    try:
-                        rr = np.parse_read_resp(pkt.payload)
-                    except Exception:
-                        return False
-                    return (rr.handle == want_handle) and (rr.offset == want_off)
-
-                return _accept
 
             # Optional body upload (POST/PUT only)
             if args.method in (2, 3) and (stream_body or body_len_hint > 0):
