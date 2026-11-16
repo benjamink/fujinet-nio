@@ -91,18 +91,29 @@ public:
         if (!sync_position()) {
             return copied;
         }
-        const std::size_t remaining = maxBytes - copied;
-        const std::size_t bytesRead = _client->read(_fileHandle, out + copied, remaining);
-        if (bytesRead == std::min<std::size_t>(remaining, kBlock)) {
-            _serverPos += bytesRead;
-        } else {
-            _serverPos = kUnknown;
+        // A TNFS read returns at most one block. Keep reading until the request is filled, so a
+        // short result means the end of the file (or an error), which callers rely on: a larger
+        // read must not be cut short at 512 bytes and then taken for the end.
+        std::size_t total = 0;
+        while (copied + total < maxBytes) {
+            const std::size_t remaining = maxBytes - copied - total;
+            const std::size_t wanted = std::min<std::size_t>(remaining, kBlock);
+            const std::size_t bytesRead = _client->read(_fileHandle, out + copied + total, remaining);
+            if (bytesRead == wanted) {
+                _serverPos += bytesRead;
+            } else {
+                _serverPos = kUnknown;
+            }
+            if (_cacheable && bytesRead == kBlock && _position % kBlock == 0) {
+                cache_put(_position, out + copied + total);
+            }
+            _position += bytesRead;
+            total += bytesRead;
+            if (bytesRead < wanted) {
+                break; // end of file, or an error
+            }
         }
-        if (_cacheable && bytesRead == kBlock && _position % kBlock == 0) {
-            cache_put(_position, out + copied);
-        }
-        _position += bytesRead;
-        return copied + bytesRead;
+        return copied + total;
     }
 
     std::size_t write(const void* src, std::size_t bytes) override {
