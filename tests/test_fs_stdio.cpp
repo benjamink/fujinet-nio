@@ -58,3 +58,31 @@ TEST_CASE("StdioFile: a write right after a read lands at the logical position")
     CHECK(bytes[8 * 512] == 0);
     std::filesystem::remove_all(dir);
 }
+
+namespace {
+bool g_medium_in = true;
+bool medium_in() noexcept { return g_medium_in; }
+} // namespace
+
+TEST_CASE("stdio filesystem: available() is true by default and follows an injected probe")
+{
+    const auto dir = std::filesystem::temp_directory_path() / "fnio_fs_stdio_available";
+    std::filesystem::create_directories(dir);
+
+    // No probe: nothing can take the medium away.
+    auto plain = fujinet::fs::create_stdio_filesystem(dir.string(), "plain", fujinet::fs::FileSystemKind::HostPosix);
+    REQUIRE(plain);
+    CHECK(plain->available());
+
+    auto card = fujinet::fs::create_stdio_filesystem(dir.string(), "sd0", fujinet::fs::FileSystemKind::LocalSD,
+                                                     nullptr, &medium_in);
+    REQUIRE(card);
+    g_medium_in = true;
+    CHECK(card->available());
+    g_medium_in = false;                       // card pulled
+    CHECK_FALSE(card->available());
+    CHECK(plain->available());                 // only the filesystem with the probe is affected
+    g_medium_in = true;                        // card back
+    CHECK(card->available());
+    std::filesystem::remove_all(dir);
+}

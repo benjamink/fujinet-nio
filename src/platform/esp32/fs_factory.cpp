@@ -36,7 +36,8 @@ std::unique_ptr<fujinet::fs::IFileSystem> create_sdcard_filesystem()
         "/sdcard",
         "sd0",
         FileSystemKind::LocalSD,
-        &note_activity
+        &note_activity,
+        &sdcard_present
     );
 }
 

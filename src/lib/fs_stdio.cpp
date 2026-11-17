@@ -100,11 +100,12 @@ private:
 class StdioFileSystem : public IFileSystem {
 public:
     StdioFileSystem(std::string rootDir, std::string name, FileSystemKind kind,
-                    FileActivityHook onActivity)
+                    FileActivityHook onActivity, AvailabilityProbe isAvailable)
         : _root(std::move(rootDir))
         , _name(std::move(name))
         , _kind(kind)
         , _onActivity(onActivity)
+        , _isAvailable(isAvailable)
     {
         // normalise root: no trailing slash (except "/" itself)
         if (!_root.empty() && _root.size() > 1 && _root.back() == '/') {
@@ -121,6 +122,7 @@ public:
 
     FileSystemKind kind() const override { return _kind; }
     std::string    name() const override { return _name; }
+    bool available() const override { return !_isAvailable || _isAvailable(); }
 
     bool exists(const std::string& path) override
     {
@@ -277,6 +279,7 @@ private:
     std::string    _name;
     FileSystemKind _kind;
     FileActivityHook _onActivity{};
+    AvailabilityProbe _isAvailable{};
 };
 
 // Factory
@@ -284,11 +287,12 @@ std::unique_ptr<fujinet::fs::IFileSystem>
 create_stdio_filesystem(const std::string& rootDir,
                         const std::string& name,
                         FileSystemKind kind,
-                        FileActivityHook onActivity)
+                        FileActivityHook onActivity,
+                        AvailabilityProbe isAvailable)
 {
     FN_ELOG("Creating stdio filesystem '%s' at root '%s'",
         name.c_str(), rootDir.c_str());
-    return std::make_unique<StdioFileSystem>(rootDir, name, kind, onActivity);
+    return std::make_unique<StdioFileSystem>(rootDir, name, kind, onActivity, isAvailable);
 }
 
 } // namespace fujinet::fs

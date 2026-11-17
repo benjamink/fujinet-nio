@@ -157,10 +157,10 @@ public:
     virtual bool supportsRangeListing() const { return false; }
 
     // Whether the filesystem can be used right now. A filesystem stays registered when its
-    // medium goes away (a pulled SD card): it then reports false here, its operations fail,
-    // and it recovers by itself when the medium is back. May make a short, bounded attempt
-    // to reach the medium; it never changes any data. Filesystems with no removable medium
-    // keep the default, true.
+    // medium goes away (a pulled SD card): it then reports false here and its operations fail.
+    // Whether it recovers by itself when the medium is back depends on the platform (the Pico
+    // SD driver does). May make a short, bounded attempt to reach the medium; it never changes
+    // any data. Filesystems with no removable medium keep the default, true.
     virtual bool available() const { return true; }
 };
 

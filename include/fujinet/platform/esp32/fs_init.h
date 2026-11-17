@@ -10,4 +10,8 @@ bool init_littlefs();
 // Returns true on success, false on failure.
 bool init_sdcard_spi();
 
+// True while the mounted SD card still answers (a status command to the card), so a card pulled
+// from its slot is noticed without waiting for a file operation to fail. False if no card was mounted.
+bool sdcard_present() noexcept;
+
 } // namespace fujinet::platform::esp32

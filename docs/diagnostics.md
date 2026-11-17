@@ -280,8 +280,8 @@ which lives on the default persistent filesystem: `host`, else `sd0`, else `flas
 
 - `appstore.status` — the filesystem backing the store (`backing_fs`) and whether it is usable
   right now (`usable`). If the SD card is pulled, `backing_fs` stays `sd0` and `usable` is
-  `false`: the store does not move to flash, so writes fail until the card is back, and it then
-  recovers by itself. `backing_fs: none` means no persistent filesystem is registered.
+  `false`: the store does not move to flash, so writes fail until the card is usable again.
+  `backing_fs: none` means no persistent filesystem is registered.
 - `appstore.stat`, `appstore.list`, `appstore.read` — inspect a key or list a namespace.
 - `appstore.write`, `appstore.delete`, `appstore.rename` — change keys (not marked safe).
 
@@ -309,7 +309,8 @@ It depends on:
 - `list`
 - `dump`
 - `fs` — list the mounted filesystems. One whose medium is out (a pulled SD card) is
-  still listed, as `sd0 (not available)`, and recovers by itself when the medium returns.
+  still listed, as `sd0 (not available)`. Whether it works again when the card is back depends on
+  the platform (the Pico driver re-initialises it by itself).
 
 ### Prompt + echo
 

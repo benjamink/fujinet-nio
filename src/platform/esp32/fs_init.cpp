@@ -51,6 +51,12 @@ bool init_littlefs()
     return true;
 }
 
+bool sdcard_present() noexcept
+{
+    // sdmmc_get_status() sends SEND_STATUS (CMD13) and fails when the card does not answer.
+    return s_sdcard && sdmmc_get_status(s_sdcard) == ESP_OK;
+}
+
 bool init_sdcard_spi()
 {
     using fujinet::platform::esp32::pinmap;
