@@ -217,6 +217,32 @@ TEST_CASE("ConsoleEngine format needs a handler and an explicit confirm")
     CHECK(contains(io.out, "format"));
 }
 
+TEST_CASE("FsShell fs marks a filesystem whose medium is out, and stops once it is back")
+{
+    fujinet::fs::StorageManager storage;
+    auto card_up = std::make_unique<fujinet::tests::MemoryFileSystem>("sd0");
+    auto* card = card_up.get();
+    REQUIRE(storage.registerFileSystem(std::move(card_up)));
+    REQUIRE(storage.registerFileSystem(std::make_unique<fujinet::tests::MemoryFileSystem>("flash")));
+
+    FakeConsoleTransport io;
+    fujinet::console::ConsoleCommandRegistry reg;
+    fujinet::console::FsShell sh(storage);
+    REQUIRE(sh.register_commands(reg, io));
+    std::vector<std::string> argv_s = {"fs"};
+
+    REQUIRE(reg.dispatch(sv_argv(argv_s)).has_value());
+    CHECK(io.out == "flash\nsd0\n");                       // unchanged output while everything works
+
+    io.out.clear(); card->set_available(false);
+    REQUIRE(reg.dispatch(sv_argv(argv_s)).has_value());
+    CHECK(io.out == "flash\nsd0 (not available)\n");     // still listed: it recovers by itself
+
+    io.out.clear(); card->set_available(true);
+    REQUIRE(reg.dispatch(sv_argv(argv_s)).has_value());
+    CHECK(io.out == "flash\nsd0\n");
+}
+
 TEST_CASE("FsShell rm/rmdir semantics + wildcards + mv to directory")
 {
     fujinet::fs::StorageManager storage;

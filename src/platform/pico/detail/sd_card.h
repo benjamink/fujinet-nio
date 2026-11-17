@@ -29,6 +29,10 @@ public:
     // Bring the card from power-up to transfer state. Safe to call again after an error.
     bool init();
     bool ready() const { return ready_; }
+    // Asks the card for its status (CMD13). False if it does not answer, and the card is then
+    // marked not ready like after any failed access. Notices a pulled card without waiting for
+    // a read or write to fail; a card that is merely busy still counts as present.
+    bool present();
     std::uint32_t sector_count() const { return sectors_; }
     std::uint32_t now_ms() { return bus_.now_ms(); }
     bool high_capacity() const { return block_addressing_; }

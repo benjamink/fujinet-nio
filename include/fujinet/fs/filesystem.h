@@ -155,6 +155,13 @@ public:
     // True when listDirectoryRange() fetches only the requested range (callers should then
     // request small ranges and cache them; otherwise request the whole directory once).
     virtual bool supportsRangeListing() const { return false; }
+
+    // Whether the filesystem can be used right now. A filesystem stays registered when its
+    // medium goes away (a pulled SD card): it then reports false here, its operations fail,
+    // and it recovers by itself when the medium is back. May make a short, bounded attempt
+    // to reach the medium; it never changes any data. Filesystems with no removable medium
+    // keep the default, true.
+    virtual bool available() const { return true; }
 };
 
 // Sort by basename (ASCII case-insensitive, ties by exact name), optionally directories first.

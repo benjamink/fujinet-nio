@@ -364,7 +364,10 @@ bool FsShell::cmd_fs(IConsoleTransport& io, const std::vector<std::string_view>&
         return true;
     }
     for (const auto& n : names) {
-        io.write_line(n);
+        // A filesystem whose medium is out stays listed (it recovers by itself); say so.
+        const auto* fs = _storage.get(n);
+        if (fs && !fs->available()) io.write_line(n + " (not available)");
+        else io.write_line(n);
     }
     return true;
 }

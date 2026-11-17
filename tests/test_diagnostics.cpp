@@ -3,8 +3,12 @@
 #include "fujinet/core/core.h"
 #include "fujinet/diag/diagnostic_provider.h"
 #include "fujinet/diag/diagnostic_registry.h"
+#include "fujinet/fs/storage_manager.h"
+
+#include "fake_fs.h"
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -183,4 +187,44 @@ TEST_CASE("core.mem is listed, and says when the platform has no memory statisti
     CHECK(r.status == fujinet::diag::DiagStatus::Ok);
     // POSIX reports nothing; ESP32 lists internal and PSRAM heap and the task's stack.
     CHECK(r.text == "memory statistics are not available on this platform\r\n");
+}
+
+TEST_CASE("appstore.status names the backing filesystem and whether it is usable, without moving the store")
+{
+    fujinet::core::FujinetCore core;
+    auto provider = fujinet::diag::create_app_store_diagnostic_provider(core);
+
+    std::vector<fujinet::diag::DiagCommandSpec> cmds;
+    provider->list_commands(cmds);
+    bool listed = false;
+    for (const auto& c : cmds) listed = listed || c.name == "appstore.status";
+    CHECK(listed);
+
+    auto status = [&] {
+        fujinet::diag::DiagArgsView args;
+        args.argv = {std::string_view("appstore.status")};
+        return provider->execute(args);
+    };
+
+    // No persistent filesystem registered at all.
+    auto r = status();
+    CHECK(r.status == fujinet::diag::DiagStatus::Ok);
+    CHECK(r.text == "backing_fs: none\r\nusable: false\r\n");
+
+    // sd0 is preferred over flash when both are registered.
+    auto sd_up = std::make_unique<fujinet::tests::MemoryFileSystem>("sd0");
+    auto* sd = sd_up.get();
+    REQUIRE(core.storageManager().registerFileSystem(std::move(sd_up)));
+    REQUIRE(core.storageManager().registerFileSystem(std::make_unique<fujinet::tests::MemoryFileSystem>("flash")));
+    r = status();
+    CHECK(r.text == "backing_fs: sd0\r\nusable: true\r\n");
+
+    // The card is pulled: the store still points at sd0 (no fallback to flash), and says it is unusable.
+    sd->set_available(false);
+    r = status();
+    CHECK(r.status == fujinet::diag::DiagStatus::Ok);
+    CHECK(r.text == "backing_fs: sd0\r\nusable: false\r\n");
+
+    sd->set_available(true);
+    CHECK(status().text == "backing_fs: sd0\r\nusable: true\r\n");
 }

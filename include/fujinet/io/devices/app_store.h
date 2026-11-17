@@ -44,6 +44,9 @@ public:
 
     bool available() const;
     std::string backing_fs_name() const;
+    // The backing filesystem exists and can be used right now (a removed SD card makes this
+    // false while available() stays true: the store does not move to another filesystem).
+    bool backing_usable() const;
 
     bool stat(std::string_view ns, std::string_view key, Stat& out);
     bool read(std::string_view ns, std::string_view key, std::uint32_t offset, std::uint16_t maxBytes, ReadResult& out);

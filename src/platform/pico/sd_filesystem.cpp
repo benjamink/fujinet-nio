@@ -102,6 +102,12 @@ struct Volume {
         return false;
     }
     void note(FRESULT r) { if (is_disk_error(r) && mounted) { f_unmount(""); mounted = false; } }
+    // Usable now. A pulled card still reads as ready until an access fails, so ask it: the
+    // volume is then dropped here rather than on the next failing read or write.
+    bool available() {
+        if (mounted && !card.present()) { f_unmount(""); mounted = false; }
+        return ensure();
+    }
 };
 
 // FatFs paths: no volume prefix, absolute, '/' separated. Reject what FatFs would treat specially.
@@ -194,6 +200,7 @@ public:
     explicit FileSystem(std::shared_ptr<Volume> v) : volume_(std::move(v)) {}
     fs::FileSystemKind kind() const override { return fs::FileSystemKind::LocalSD; }
     std::string name() const override { return "sd0"; }
+    bool available() const override { return volume_->available(); }
 
     bool exists(const std::string& p) override { auto i = std::make_unique<FILINFO>(); return info(p, *i); }
     bool isDirectory(const std::string& p) override { auto i = std::make_unique<FILINFO>(); return info(p, *i) && (i->fattrib & AM_DIR); }

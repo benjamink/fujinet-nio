@@ -67,6 +67,12 @@ public:
     void list_commands(std::vector<DiagCommandSpec>& out) const override
     {
         out.push_back(DiagCommandSpec{
+            .name = "appstore.status",
+            .summary = "show which filesystem backs application storage and whether it is usable",
+            .usage = "appstore.status",
+            .safe = true,
+        });
+        out.push_back(DiagCommandSpec{
             .name = "appstore.stat",
             .summary = "inspect an application storage key",
             .usage = "appstore.stat <namespace> <key>",
@@ -111,6 +117,7 @@ public:
         }
 
         const std::string_view cmd = args.argv[0];
+        if (cmd == "appstore.status") return cmd_status(args);
         if (cmd == "appstore.stat") return cmd_stat(args);
         if (cmd == "appstore.list") return cmd_list(args);
         if (cmd == "appstore.read") return cmd_read(args);
@@ -130,6 +137,27 @@ private:
             return DiagResult::not_ready("application storage backing filesystem is not available\r\n");
         }
         return DiagResult::ok();
+    }
+
+    // Application storage lives on the default persistent filesystem and does not move to another
+    // one when that is unusable (a pulled SD card): writes fail until the medium is back.
+    DiagResult cmd_status(const DiagArgsView& args)
+    {
+        if (args.argv.size() != 1) {
+            return DiagResult::invalid_args("usage: appstore.status\r\n");
+        }
+        auto s = store();
+        const std::string name = s.backing_fs_name();
+        const bool usable = s.backing_usable();
+        DiagResult r = DiagResult::ok();
+        r.kv.emplace_back("backing_fs", name.empty() ? "none" : name);
+        r.kv.emplace_back("usable", usable ? "true" : "false");
+        r.text = "backing_fs: ";
+        r.text += name.empty() ? "none" : name;
+        r.text += "\r\nusable: ";
+        r.text += usable ? "true" : "false";
+        r.text += "\r\n";
+        return r;
     }
 
     DiagResult cmd_stat(const DiagArgsView& args)

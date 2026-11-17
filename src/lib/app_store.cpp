@@ -129,6 +129,12 @@ bool AppStore::available() const
     return backing_fs() != nullptr;
 }
 
+bool AppStore::backing_usable() const
+{
+    auto* fs = backing_fs();
+    return fs && fs->available();
+}
+
 std::string AppStore::backing_fs_name() const
 {
     auto* fs = backing_fs();

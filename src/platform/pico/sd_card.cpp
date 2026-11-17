@@ -3,7 +3,7 @@
 namespace fujinet::platform::pico::detail {
 namespace {
 
-constexpr std::uint8_t kCmd0 = 0, kCmd8 = 8, kCmd9 = 9, kCmd12 = 12, kCmd16 = 16, kCmd17 = 17,
+constexpr std::uint8_t kCmd0 = 0, kCmd8 = 8, kCmd9 = 9, kCmd12 = 12, kCmd13 = 13, kCmd16 = 16, kCmd17 = 17,
                        kCmd18 = 18, kCmd24 = 24, kCmd25 = 25, kCmd41 = 41, kCmd55 = 55, kCmd58 = 58;
 constexpr std::uint8_t kTokenSingle = 0xFE, kTokenMultiWrite = 0xFC, kTokenStop = 0xFD;
 constexpr std::uint8_t kR1Idle = 0x01, kR1IllegalCommand = 0x04;
@@ -141,6 +141,18 @@ bool SdCard::read_data(std::uint8_t* dst, std::size_t len, std::uint32_t timeout
     bus_.read(dst, len);
     std::uint8_t crc[2];
     bus_.read(crc, 2); // not checked: the link is not CRC-protected in SPI mode by default
+    return true;
+}
+
+bool SdCard::present()
+{
+    if (!ready_) return false;
+    // R2 is R1 plus one status byte. Any R1 means a card answered; an absent card leaves MISO
+    // high (pull-up), so command() times out with 0xFF.
+    const std::uint8_t r1 = command(kCmd13, 0);
+    if (r1 == 0xFF) return fail();
+    bus_.transfer(0xFF);
+    release();
     return true;
 }
 

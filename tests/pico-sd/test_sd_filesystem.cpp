@@ -229,6 +229,39 @@ TEST_CASE("a card that errors mid-use fails operations, then recovers on its own
     CHECK(r.put("/new.bin", pattern(10, 1)));
 }
 
+TEST_CASE("available() says the card is gone as soon as it is pulled, before any access has failed") {
+    Rig r;
+    REQUIRE(r.put("/keep.bin", pattern(2000, 1)));
+    CHECK(r.fs->available());
+    r.card.options().absent = true;          // pulled while nothing is using it
+    CHECK_FALSE(r.fs->available());          // no read or write has failed yet
+    CHECK_FALSE(r.fs->exists("/keep.bin"));
+    CHECK_FALSE(r.put("/new.bin", pattern(10, 1))); // behaviour is unchanged: the write fails
+
+    r.card.options().absent = false;         // back in
+    r.card.delay_ms(1500);                   // the retry interval passes
+    CHECK(r.fs->available());                // recovered without being told
+    CHECK(r.get("/keep.bin") == pattern(2000, 1));
+}
+
+TEST_CASE("available() does not mount a card that was never there and answers promptly while it is away") {
+    Rig r;
+    r.card.options().absent = true;
+    CHECK_FALSE(r.fs->available());
+    const auto t = r.card.now_ms();
+    for (int i = 0; i < 20; ++i) CHECK_FALSE(r.fs->available());
+    CHECK(r.card.now_ms() - t < 50);         // re-initialisation is rate limited like any other access
+}
+
+TEST_CASE("available() has no side effects on the data") {
+    Rig r;
+    REQUIRE(r.put("/a.bin", pattern(3000, 7)));
+    const auto before = r.card.writes;
+    for (int i = 0; i < 10; ++i) CHECK(r.fs->available());
+    CHECK(r.card.writes == before);
+    CHECK(r.get("/a.bin") == pattern(3000, 7));
+}
+
 TEST_CASE("while the card is away each call returns promptly instead of re-initialising every time") {
     Rig r;
     r.card.options().absent = true;

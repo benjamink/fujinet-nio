@@ -81,6 +81,46 @@ TEST_CASE("no card: init fails quickly and cleanly") {
     CHECK_FALSE(sd.write(0, b, 1));
 }
 
+TEST_CASE("present() asks the card and notices a pulled card without any read or write") {
+    Card card;
+    SdCard sd(card, kRun);
+    REQUIRE(sd.init());
+    const auto commands = card.commands;
+    CHECK(sd.present());
+    CHECK(card.commands == commands + 1);     // one status command, nothing else
+    CHECK(card.illegal == 0);
+    CHECK(sd.ready());
+
+    card.options().absent = true;             // pulled: the card still thinks it is ready ...
+    CHECK(sd.ready());
+    CHECK_FALSE(sd.present());                // ... until it is asked
+    CHECK_FALSE(sd.ready());                  // and now it is marked not ready like after any failed access
+    std::uint8_t b[512];
+    CHECK_FALSE(sd.read(0, b, 1));
+
+    card.options().absent = false;            // back: a fresh init() recovers it
+    CHECK(sd.init());
+    CHECK(sd.present());
+}
+
+TEST_CASE("present() is false for a card that was never initialised, and does not touch the bus") {
+    Card card;
+    SdCard sd(card, kRun);
+    CHECK_FALSE(sd.present());
+    CHECK(card.commands == 0);
+}
+
+TEST_CASE("a card that is busy programming still counts as present") {
+    Options o; o.busy_bytes = 200;
+    Card card(o);
+    SdCard sd(card, kRun);
+    REQUIRE(sd.init());
+    auto data = pattern(512, 5);
+    REQUIRE(sd.write(3, data.data(), 1));     // leaves the card busy for a while
+    CHECK(sd.present());                      // waits for it, then asks
+    CHECK(sd.ready());
+}
+
 TEST_CASE("single and multi block reads and writes are byte exact, including the last sector") {
     Card card;
     SdCard sd(card, kRun);

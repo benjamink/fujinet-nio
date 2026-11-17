@@ -273,6 +273,18 @@ type=json status=ok ms=3 body=386 out=24 stack_used=0 heap_peak=0 heap_free_befo
   source and output size and format, or why it failed (over the pixel cap,
   not an image, out of memory).
 
+### Provider: `appstore`
+
+Inspects and edits application storage (the key/value store applications use for their settings),
+which lives on the default persistent filesystem: `host`, else `sd0`, else `flash`.
+
+- `appstore.status` — the filesystem backing the store (`backing_fs`) and whether it is usable
+  right now (`usable`). If the SD card is pulled, `backing_fs` stays `sd0` and `usable` is
+  `false`: the store does not move to flash, so writes fail until the card is back, and it then
+  recovers by itself. `backing_fs: none` means no persistent filesystem is registered.
+- `appstore.stat`, `appstore.list`, `appstore.read` — inspect a key or list a namespace.
+- `appstore.write`, `appstore.delete`, `appstore.rename` — change keys (not marked safe).
+
 ---
 
 ## Console engine (app-only)
@@ -296,6 +308,8 @@ It depends on:
   - Example: `core.stats`
 - `list`
 - `dump`
+- `fs` — list the mounted filesystems. One whose medium is out (a pulled SD card) is
+  still listed, as `sd0 (not available)`, and recovers by itself when the medium returns.
 
 ### Prompt + echo
 

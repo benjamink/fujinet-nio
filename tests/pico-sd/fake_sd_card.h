@@ -139,6 +139,7 @@ private:
             if (f[5] != 0x87 || arg != 0x1AA) { ++illegal; respond(0x05); return; }
             respond(0x01); out_.insert(out_.end(), {0x00, 0x00, 0x01, 0xAA}); return;
         case 55: app_ = true; respond(idle_bit); return;
+        case 13: respond(idle_bit); out_.push_back(0x00); return; // SEND_STATUS: R2 = R1 + one byte
         case 41:
             if (!was_app) { ++illegal; respond(0x05); return; }
             if (!o_.v1 && (arg & 0x40000000u) == 0 && o_.sdhc) { respond(0x01); return; } // SDHC wants HCS

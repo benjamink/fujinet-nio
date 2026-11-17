@@ -168,6 +168,11 @@ wiring (cards allow 25 MHz, `NIO_PICO_SD_BAUD`). The pins are CMake cache variab
 - The card is looked for once, at boot. With no usable card there is no `sd0` and nothing
   changes. A card inserted later needs a restart. A card that was mounted and then errors is
   re-initialised on the next access (at most once a second); files opened before are then dead.
+- A pulled card leaves `sd0` registered. `IFileSystem::available()` asks the card (CMD13), so it
+  reports false at once, without waiting for an access to fail; the console `fs` command shows
+  `sd0 (not available)` and `appstore.status` shows `usable: false`. Nothing moves to flash: the
+  app store and disk images keep pointing at `sd0`, their writes fail while the card is out, and
+  everything works again by itself when the card is back.
 - As on ESP32, a present `sd0` becomes the default persistent store for disk images and the
   app store. `fujinet.yaml` stays on flash.
 - The driver (`src/platform/pico/sd_card.cpp`) speaks SPI mode directly. FatFs R0.15 comes from

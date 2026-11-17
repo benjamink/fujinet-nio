@@ -78,6 +78,9 @@ public:
 
     fujinet::fs::FileSystemKind kind() const override { return _kind; }
     std::string name() const override { return _name; }
+    // A removable medium that is out: the filesystem stays registered but reports unavailable.
+    bool available() const override { return _available; }
+    void set_available(bool on) { _available = on; }
 
     bool exists(const std::string& path) override
     {
@@ -262,6 +265,7 @@ private:
     std::string _name;
     fujinet::fs::FileSystemKind _kind;
     std::unordered_map<std::string, std::vector<std::uint8_t>> _files;
+    bool _available = true;
     std::vector<std::string> _dirs;
     std::size_t _flushCount{0};
     bool _failFlush{false};
