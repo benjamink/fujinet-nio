@@ -63,3 +63,47 @@ this evidence. Do not label this a confirmed CYW43, USB, or client bug yet.
 Verification: tshark conversation, selected-frame and analysis-flag views;
 capinfos metadata and digest; source inspection of fn_write diagnostic handling.
 No runtime code changed for this analysis.
+
+## Second soak: USB capture identifies an incomplete outgoing frame
+
+Network capture /tmp/bounce-pico-network-2.pcap:
+- Frame 22191, 13:26:16.294473: last six-byte request, raw sequence 153726.
+- Frame 22192, 13:26:16.294530: server reply (57 microseconds), ACK 153732.
+- Frame 22193, 13:26:16.472148: Pico acknowledges the reply.
+- Frames 22194–22195: server FIN at 13:26:46.295066 and Pico ACK at
+  13:26:46.297499. Thus this capture includes the idle close.
+- UART EOF: tx=ack=140508, rx=read=3487559, seq=153732/153732,
+  wait=30004ms; matches the client screenshot's successful byte totals.
+
+Filtered USB capture /tmp/bounce-pico-usb.pcapng (bus 7, device 102):
+- Frames 1000359–1000374, 13:26:16.393805–.393857: sixteen one-byte
+  bulk OUT submissions to endpoint 0x02. Concatenated payload:
+  c0 fd 03 15 00 9a 00 01 00 02 dc 24 02 00 06 00
+- This is the opening SLIP delimiter and complete Write header/metadata for
+  offset 140508 and length six. The six application bytes and trailing SLIP
+  delimiter were NEVER submitted in this attempt.
+- Fifteen OUT completions succeed by .394454. The sixteenth URB
+  (0xffff8a2b8eb6b2c0) remains pending.
+- At 13:26:17.393908 the client starts sending Close:
+  c0 fd 04 09 00 0e 00 01 00 02 c0.
+- Frame 1000401 at 13:26:17.394008 completes the pending Write-header byte,
+  approximately 1.000151 seconds after submission; Close bytes then complete.
+- No bulk IN response follows these attempts before host cleanup cancels
+  outstanding reads at 13:26:22.425. Do not mistake those cancellations for the
+  initiating failure.
+
+The captured Write is incomplete at the host USB submission boundary, explaining
+why no command reaches TCP and why the server eventually closes for inactivity.
+This does not prove why the one-byte URB completion/readiness was delayed.
+The Linux channel calls write(fd, &byte, 1) for each framed byte; after EAGAIN it
+waits in select for up to one second. The observed pattern is consistent with
+that path timing out partway through frame submission. A syscall trace would
+be needed to establish the exact write/select return sequence.
+
+The client library already has a complete-frame bulk callback, unused by Linux.
+The follow-up enables it for Linux, advances through short writes, retries
+EINTR/backpressure within a monotonic total deadline, and periodically rechecks
+write readiness. This removes the one-byte-per-URB pattern and avoids relying
+on a single readiness wake. It is a targeted mitigation, not proof that an
+underlying USB controller/driver issue is fixed. Keep existing firmware and
+application reply deadlines for the comparison soak.
