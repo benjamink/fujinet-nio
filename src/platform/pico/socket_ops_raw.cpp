@@ -2,6 +2,7 @@
 // CYW43 dispatcher; callbacks already run under that same lwIP lock.
 #include "fujinet/platform/tcp_socket_ops.h"
 #include "fujinet/platform/udp_socket_ops.h"
+#include "fujinet/platform/pico/tcp_diagnostics.h"
 #include "detail/socket_state.h"
 #include "detail/network_limits.h"
 static_assert(FN_PICO_TCP_WINDOW_BYTES >= FN_PICO_TLS_RECORD_BYTES + FN_PICO_TLS_WIRE_OVERHEAD);
@@ -14,6 +15,8 @@ static_assert(FN_PICO_TCP_WINDOW_BYTES >= FN_PICO_TLS_RECORD_BYTES + FN_PICO_TLS
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <cstdio>
+#include <cinttypes>
 
 namespace fujinet::net {
 // Deliberately private address representation; shared code only carries pointers.
@@ -97,31 +100,75 @@ int resolve(const char* host, const char* port, int type, AddrInfo** out) {
     *out = new (std::nothrow) AddrInfo(a);
     return *out ? 0 : ENOMEM;
 }
+// Counters only in raw callbacks; never printf while owning the lwIP lock.
+struct TcpObservation {
+    std::uint64_t tx = 0, ack = 0, rx = 0, consumed = 0;
+    std::uint64_t write_at = 0, report_at = 0;
+    std::uint32_t empty_reads = 0, output_errors = 0, refused = 0;
+    int last_output = 0, callback_error = 0;
+    bool waiting_rx = false, report_pending = false, stalled = false;
+};
 struct TcpState {
     tcp_pcb* pcb = nullptr;
     ByteRing<FN_PICO_TCP_WINDOW_BYTES> rx;
     bool connected = false, eof = false, listening = false;
     int error = 0;
+    TcpObservation observation;
     std::array<int, 4> accepted{}; // handles of accepted children; 0 is none (handles start at 1)
     unsigned accept_head=0, accept_count=0;
 };
 HandleTable<TcpState, FN_PICO_RAW_TCP_HANDLES> tcp_states;
+struct TcpReport {
+    TcpObservation o;
+    std::uint64_t at = 0;
+    int fd = 0, error = 0, state = 0;
+    unsigned rx_queue = 0, sndbuf = 0, window = 0, retransmits = 0;
+    int rto = 0;
+    std::uint32_t next = 0, ack = 0;
+    bool pcb = false, unsent = false, unacked = false, eof = false;
+    const char* reason = nullptr;
+};
+std::array<TcpReport, 4> closed_reports{};
+unsigned closed_head = 0, closed_count = 0, reports_dropped = 0;
+std::uint64_t last_report_at = 0;
+bool emitted_report = false;
+TcpReport tcp_report(int fd, const TcpState& s, const char* reason) {
+    TcpReport r{}; r.fd=fd; r.o=s.observation; r.at=time_us_64()/1000;
+    r.error=s.error; r.eof=s.eof; r.rx_queue=s.rx.size(); r.reason=reason;
+    if (s.pcb && !s.listening) {
+        r.pcb=true; r.state=s.pcb->state; r.sndbuf=tcp_sndbuf(s.pcb);
+        r.window=s.pcb->snd_wnd; r.retransmits=s.pcb->nrtx; r.rto=s.pcb->rto;
+        r.next=s.pcb->snd_nxt; r.ack=s.pcb->lastack;
+        r.unsent=s.pcb->unsent!=nullptr; r.unacked=s.pcb->unacked!=nullptr;
+    }
+    return r;
+}
+err_t tcp_acknowledged(void* arg, tcp_pcb*, u16_t n) {
+    auto& o=static_cast<TcpState*>(arg)->observation;
+    o.ack+=n;
+    return ERR_OK;
+}
 void tcp_error(void* arg, err_t e) {
     auto& s = *static_cast<TcpState*>(arg);
     s.pcb = nullptr; s.error = native_error(e); s.connected = false;
+    s.observation.callback_error=e; s.observation.report_pending=true;
 }
 err_t tcp_received(void* arg, tcp_pcb*, pbuf* p, err_t e) {
     auto& s = *static_cast<TcpState*>(arg);
-    if (!p) { s.eof = true; return ERR_OK; }
-    if (e != ERR_OK) return e;
-    if (p->tot_len > s.rx.free()) return ERR_MEM; // lwIP retains packet and retries.
+    if (!p) { s.eof = true; s.observation.report_pending=true; return ERR_OK; }
+    if (e != ERR_OK) { s.observation.callback_error=e; s.observation.report_pending=true; return e; }
+    if (p->tot_len > s.rx.free()) { ++s.observation.refused; return ERR_MEM; } // lwIP retains packet and retries.
     for (auto* part = p; part; part = part->next) s.rx.push(part->payload, part->len);
+    s.observation.rx+=p->tot_len;
+    s.observation.waiting_rx=false;
+    if (s.observation.stalled) s.observation.report_pending=true;
     pbuf_free(p);
     // tcp_recved happens only when the application consumes bytes (backpressure).
     return ERR_OK;
 }
 void setup(TcpState& s) {
     tcp_arg(s.pcb, &s); tcp_err(s.pcb, tcp_error); tcp_recv(s.pcb, tcp_received);
+    tcp_sent(s.pcb,tcp_acknowledged);
 }
 err_t tcp_connected(void* arg, tcp_pcb*, err_t e) {
     auto& s = *static_cast<TcpState*>(arg);
@@ -145,10 +192,18 @@ void close_tcp(int fd) {
     auto* s = tcp_states.get(fd);
     if (!s) return;
     for (int pending : s->accepted) if (pending > 0) close_tcp(pending);
+    const auto& o=s->observation;
+    if (!s->listening && (o.report_pending || o.stalled ||
+        (o.waiting_rx && o.empty_reads && time_us_64()/1000-o.write_at>=2000))) {
+        if (closed_count<closed_reports.size()) {
+            closed_reports[(closed_head+closed_count)%closed_reports.size()]=tcp_report(fd,*s,"close");
+            ++closed_count;
+        } else ++reports_dropped;
+    }
     if (s->pcb) {
         tcp_arg(s->pcb, nullptr);
         if (s->listening) tcp_accept(s->pcb, nullptr);
-        else { tcp_recv(s->pcb, nullptr); tcp_err(s->pcb, nullptr); }
+        else { tcp_recv(s->pcb, nullptr); tcp_err(s->pcb, nullptr); tcp_sent(s->pcb,nullptr); }
         // Detach callbacks before releasing the slot, including on ERR_MEM.
         if (tcp_close(s->pcb) != ERR_OK) tcp_abort(s->pcb);
     }
@@ -227,14 +282,25 @@ public:
         if (!n) return fail(EAGAIN);
         const auto e=tcp_write(s->pcb,data,n,TCP_WRITE_FLAG_COPY);
         if (e != ERR_OK) return fail(native_error(e));
-        tcp_output(s->pcb); return n;
+        auto& o=s->observation;
+        o.tx+=n; o.write_at=time_us_64()/1000; o.waiting_rx=true; o.empty_reads=0;
+        o.last_output=tcp_output(s->pcb);
+        if (o.last_output!=ERR_OK) { ++o.output_errors; o.report_pending=true; }
+        // tcp_write already accepted these bytes. Returning an error here
+        // would let callers resend them and duplicate a stream command.
+        return n;
     }
     SSize recv(int fd, void* out, std::size_t n) override {
         Lock lock; auto* s=tcp_states.get(fd);
         if (!s || s->listening) return fail(EBADF);
         if (!n) return 0;
-        if (s->rx.size()) { n=s->rx.pop(out,n); if(s->pcb) tcp_recved(s->pcb,n); return n; }
+        if (s->rx.size()) {
+            n=s->rx.pop(out,n); s->observation.consumed+=n;
+            if(s->pcb) tcp_recved(s->pcb,n);
+            return n;
+        }
         if (s->error) return fail(s->error);
+        if (!s->eof && s->observation.waiting_rx) ++s->observation.empty_reads;
         return s->eof ? 0 : fail(EAGAIN);
     }
     int shutdown_write(int fd) override { Lock lock; auto* s=tcp_states.get(fd); return s && s->pcb && !s->listening ? result(tcp_shutdown(s->pcb,0,1)) : fail(EBADF); }
@@ -256,6 +322,47 @@ public:
     int err_host_unreach() const noexcept override { return EHOSTUNREACH; }
     ADDRESS_OPS(1)
 };
+// Called from the foreground loop. Select a report while locked and release
+// the lock BEFORE formatting/output; UART waits must never block CYW43 work.
+void service_raw_tcp_diagnostics(void (*emit)(const char*)) {
+    TcpReport report{};
+    unsigned dropped=0;
+    {
+        Lock lock;
+        const auto now=time_us_64()/1000;
+        if (emitted_report && now-last_report_at<1000) return;
+        if (closed_count) {
+            report=closed_reports[closed_head];
+            closed_head=(closed_head+1)%closed_reports.size(); --closed_count;
+        } else {
+            tcp_states.for_each([&](int fd,TcpState& s) {
+                if (report.reason || s.listening) return;
+                auto& o=s.observation;
+                const bool stalled=o.waiting_rx && o.empty_reads && now-o.write_at>=2000;
+                if (o.report_pending || (stalled && (!o.stalled || now-o.report_at>=5000))) {
+                    const char* reason=o.callback_error ? "callback-error" : s.eof ? "eof" :
+                        o.report_pending && o.last_output!=ERR_OK ? "output-error" :
+                        o.stalled && !o.waiting_rx ? "recovered" : "no-rx";
+                    report=tcp_report(fd,s,reason);
+                    o.report_pending=false; o.stalled=stalled; o.report_at=now;
+                }
+            });
+        }
+        if (!report.reason) return;
+        dropped=reports_dropped; reports_dropped=0;
+        emitted_report=true; last_report_at=now;
+    }
+    char line[512];
+    const auto& r=report; const auto& o=r.o;
+    std::snprintf(line,sizeof(line),
+        "[pico-tcp t=%" PRIu64 " fd=%d %s] tx=%" PRIu64 " ack=%" PRIu64 " rx=%" PRIu64 " read=%" PRIu64
+        " wait=%" PRIu64 "ms poll=%u ring=%u pcb=%u state=%d unsent=%u unacked=%u seq=%u/%u wnd=%u sndbuf=%u"
+        " nrtx=%u rto=%d out=%d/%u cb=%d err=%d eof=%u refused=%u lost=%u",
+        r.at,r.fd,r.reason,o.tx,o.ack,o.rx,o.consumed,r.at-o.write_at,o.empty_reads,r.rx_queue,
+        r.pcb,r.state,r.unsent,r.unacked,r.next,r.ack,r.window,r.sndbuf,r.retransmits,r.rto,
+        o.last_output,o.output_errors,o.callback_error,r.error,r.eof,o.refused,dropped);
+    if (emit) emit(line); else std::puts(line);
+}
 // Datagrams one UDP socket queues; more are dropped. Reported through recv_queue_depth() so
 // senders (TNFS read-ahead) keep no more replies in flight than fit.
 constexpr unsigned kUdpDepth = 4;
@@ -324,6 +431,7 @@ net::IUdpSocketOps& default_udp_socket_ops() { static net::RawUdp ops; return op
 }
 
 namespace fujinet::platform::pico {
+void service_tcp_diagnostics(void (*emit)(const char*)) { net::service_raw_tcp_diagnostics(emit); }
 int resolve_tls_address(const char* host, const char* port, ip_addr_t& ip, std::uint16_t& number) {
     net::AddrInfo* address=nullptr;
     const int error=net::resolve(host,port,1,&address);

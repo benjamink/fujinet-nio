@@ -56,6 +56,9 @@ public:
         for (auto& s : slots_) if (s.handle == handle) return &s.value;
         return nullptr;
     }
+    template<class Visit> void for_each(Visit visit) {
+        for (auto& s : slots_) if (s.handle != 0) visit(s.handle, s.value);
+    }
     void release(int handle) {
         if (handle <= 0) return;
         for (auto& s : slots_) if (s.handle == handle) { s.handle = 0; std::destroy_at(&s.value); std::construct_at(&s.value); return; }

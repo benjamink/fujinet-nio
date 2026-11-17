@@ -12,6 +12,7 @@
 #include "pico/stdlib.h"
 #include "fujinet/platform/pico/memory_diag.h"
 #include "fujinet/platform/pico/stack_probe.h"
+#include "fujinet/platform/pico/tcp_diagnostics.h"
 #include "fujinet/platform/pico/usb_service.h"
 #include "fujinet/console/console_engine.h"
 #include "fujinet/diag/diagnostic_provider.h"
@@ -145,6 +146,9 @@ int main()
         if (t1 - t0 > kSlowPhaseUs) FN_LOGW(TAG, "slow console phase: %lu us", static_cast<unsigned long>(t1 - t0));
         if (t2 - t1 > kSlowPhaseUs) FN_LOGW(TAG, "slow wifi.poll: %lu us", static_cast<unsigned long>(t2 - t1));
         if (t3 - t2 > kSlowPhaseUs) FN_LOGW(TAG, "slow core.tick: %lu us", static_cast<unsigned long>(t3 - t2));
+        // Sparse stall/error evidence remains available without FN_DEBUG.
+        // Its UART output is outside the CYW43/lwIP lock and normal traffic is silent.
+        platform::pico::service_tcp_diagnostics();
         sleep_ms(1);
     }
 }

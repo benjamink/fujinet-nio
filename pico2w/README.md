@@ -27,7 +27,7 @@ pull request, with the Pico SDK 2.3.1 and Ubuntu 24.04's `gcc-arm-none-eabi` 13.
 document were measured with GCC 16.2; GCC 13.2 produces a larger image for the same source
 (1235396 bytes against 1176924 at the time of writing), so compare sizes across the same compiler.
 `FN_LOG*` compile to nothing unless `FN_DEBUG` is defined, as on the other targets, so
-the default image is silent on UART0. Configure with `-DFN_DEBUG=ON` to get the boot
+the default image omits routine logs on UART0 (sparse TCP stall/error reports remain, below). Configure with `-DFN_DEBUG=ON` to get the boot
 banner and logs on UART0 (GPIO0 TX / GPIO1 RX, 115200 baud); it adds about 19.5 KB.
 
 **Wi-Fi power save is off** (`NIO_PICO_WIFI_PM=none`). The CYW43 driver's own default sleeps the
@@ -96,6 +96,47 @@ slots survive the 5-second foreground timeout until their late callbacks finish.
 TNFS TCP uses the portable TCP protocol state machine, avoiding the older shared
 TcpChannel's BSD `select` dependency. A failed partial TNFS send closes the stream.
 
+
+### TCP stall diagnostics without debug logging
+
+Leave `FN_DEBUG=OFF` for Bouncy World soak testing. Raw TCP sockets now keep
+accepted TX, peer-acknowledged TX, received and consumed byte totals. A line
+prefixed `[pico-tcp ...]` goes to UART0 on an output/callback error, EOF, or
+when reads are still empty two seconds after a write without intervening received
+data. This is a transport heuristic, not an application reply deadline: it cannot
+recognize incomplete Bouncy World frames or attribute faults to the server.
+
+Normal request/reply traffic produces no lines. Reports are globally limited to
+one per second; continuing stalls report every five seconds per socket. Callbacks
+only update counters. The foreground copies state under the lwIP lock, releases
+it, then formats/emits at most 511 characters. UART output still costs time, but
+there are no per-request logs or payload dumps. Four queued close reports preserve
+evidence when the client closes before the foreground can report; `lost` counts
+overflowed reports. Recovery is reported when data resumes after an observed stall.
+
+For a capture, record UART0 TX (GPIO0, 115200 baud) and the linux-gfx stderr/session
+summary during the same run. Keep the existing five-second client deadline for
+the initial comparison. The important fields are:
+
+- `t`: Pico uptime milliseconds; `fd`: connection handle.
+- `tx/ack/rx/read`: cumulative accepted, acknowledged, received, consumed bytes.
+- `wait`: milliseconds since latest write; `poll`: empty reads since that write.
+- `unsent/unacked`: lwIP queues present; `seq`: next-send/last-ACK sequence numbers.
+- `wnd/sndbuf`: peer window/local send capacity; `nrtx`: retransmission count;
+  `rto`: retransmission timeout in 500 ms lwIP ticks.
+- `out`: latest tcp_output result / number of nonzero results; `cb`: raw lwIP
+  callback error; `err`: mapped errno; `refused`: receive-ring backpressure count.
+- `ring`: bytes received but not consumed; `pcb=0`: lwIP already freed the PCB.
+
+If TX exceeds ACK with unacknowledged data/retransmissions, investigate delivery
+or peer ACKs. Fully acknowledged requests without received data narrow the problem
+to the peer/application or return path; ACKs alone do not prove the server processed
+the request. Bytes in `ring` without consumption point toward firmware servicing.
+These are diagnostic leads, not a root-cause determination.
+
+A nonzero tcp_output result does **not** make the accepted write fail: returning
+an error after tcp_write accepted bytes could duplicate commands on retry. No
+retransmission policy, wire protocol, SD configuration or client timeout is changed.
 
 ### Filesystem
 

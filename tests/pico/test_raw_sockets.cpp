@@ -8,6 +8,11 @@ struct Locked {
     Locked(){cyw43_arch_lwip_begin();}
     ~Locked(){cyw43_arch_lwip_end();}
 };
+std::vector<std::string> reports;
+void capture(const char* line) {
+    CHECK(fake::lock_depth==0);
+    reports.emplace_back(line);
+}
 struct Fixture {
     net::ITcpSocketOps& tcp=platform::default_tcp_socket_ops();
     net::IUdpSocketOps& udp=platform::default_udp_socket_ops();
@@ -15,6 +20,9 @@ struct Fixture {
     Fixture() {
         fake::connect_result=fake::write_result=fake::close_result=fake::dns_result=ERR_OK;
         fake::on_sleep={};
+        fake::output_result=ERR_OK; fake::now=0;
+        net::closed_head=net::closed_count=net::reports_dropped=0;
+        net::emitted_report=false; net::last_report_at=0; reports.clear();
     }
     ~Fixture() {
         for(auto fd:tcps)tcp.close(fd);
@@ -75,7 +83,7 @@ TEST_CASE_FIXTURE(Fixture,"TCP close detaches callbacks before abort and invalid
     auto fd=stream();auto* old=fake::tcp.back().get();
     fake::close_result=ERR_MEM;const auto before=fake::aborts;
     tcp.close(fd);CHECK(fake::aborts==before+1);CHECK(old->arg==nullptr);
-    CHECK(old->recv==nullptr);CHECK(old->error==nullptr);
+    CHECK(old->recv==nullptr);CHECK(old->error==nullptr);CHECK(old->acknowledged==nullptr);
     fake::close_result=ERR_OK;
     auto next=stream();CHECK(next!=fd);
     std::uint8_t byte=0;
@@ -157,4 +165,70 @@ TEST_CASE_FIXTURE(Fixture,"Listener accepts queued clients FIFO across wrap and 
 TEST_CASE_FIXTURE(Fixture,"TCP monotonic milliseconds do not wrap after 49 days") {
     fake::now=UINT64_C(0xffffffff)-2;const auto before=tcp.now_ms();
     fake::now+=10;CHECK(tcp.now_ms()-before==10);CHECK(tcp.now_ms()>UINT32_MAX);
+}
+
+
+TEST_CASE_FIXTURE(Fixture,"TCP diagnostics are silent for normal request reply traffic") {
+    const auto fd=stream();auto* p=fake::tcp.back().get();std::uint8_t b=1;
+    CHECK(tcp.send(fd,&b,1)==1);
+    CHECK(tcp.recv(fd,&b,1)==-1);
+    fake::now=1999;platform::pico::service_tcp_diagnostics(capture);
+    CHECK(reports.empty());
+    {Locked lock;p->acknowledged(p->arg,p,1);p->recv(p->arg,p,packet(1),ERR_OK);}
+    CHECK(tcp.recv(fd,&b,1)==1);
+    fake::now=10000;platform::pico::service_tcp_diagnostics(capture);
+    CHECK(reports.empty());
+}
+TEST_CASE_FIXTURE(Fixture,"TCP stalled reply diagnostics include ACK state and rate limit recovery") {
+    const auto fd=stream();auto* p=fake::tcp.back().get();std::uint8_t b=1;
+    CHECK(tcp.send(fd,&b,1)==1);
+    {Locked lock;p->acknowledged(p->arg,p,1);}
+    CHECK(tcp.recv(fd,&b,1)==-1);
+    fake::now=2000;platform::pico::service_tcp_diagnostics(capture);
+    REQUIRE(reports.size()==1);
+    CHECK(reports.back().find("no-rx")!=std::string::npos);
+    CHECK(reports.back().find("tx=1 ack=1 rx=0")!=std::string::npos);
+    fake::now=6999;platform::pico::service_tcp_diagnostics(capture);CHECK(reports.size()==1);
+    fake::now=7000;platform::pico::service_tcp_diagnostics(capture);CHECK(reports.size()==2);
+    {Locked lock;p->recv(p->arg,p,packet(1),ERR_OK);}
+    platform::pico::service_tcp_diagnostics(capture);CHECK(reports.size()==2);
+    fake::now=8000;platform::pico::service_tcp_diagnostics(capture);
+    REQUIRE(reports.size()==3);CHECK(reports.back().find("recovered")!=std::string::npos);
+}
+TEST_CASE_FIXTURE(Fixture,"TCP output errors preserve accepted bytes and survive immediate close") {
+    const auto fd=stream();auto* p=fake::tcp.back().get();std::uint8_t b=1;
+    fake::output_result=ERR_IF;
+    CHECK(tcp.send(fd,&b,1)==1);CHECK(p->sent.size()==1);
+    CHECK(reports.empty());
+    tcp.close(fd);
+    platform::pico::service_tcp_diagnostics(capture);
+    REQUIRE(reports.size()==1);
+    CHECK(reports.back().find("close")!=std::string::npos);
+    CHECK(reports.back().find("out=-12/1")!=std::string::npos);
+}
+TEST_CASE_FIXTURE(Fixture,"TCP callback errors are deferred outside lock and retained after close") {
+    const auto fd=stream();auto* p=fake::tcp.back().get();
+    {Locked lock;p->dead=true;p->error(p->arg,ERR_RST);}
+    CHECK(reports.empty());tcp.close(fd);
+    platform::pico::service_tcp_diagnostics(capture);
+    REQUIRE(reports.size()==1);
+    CHECK(reports.back().find("cb=-14")!=std::string::npos);
+    CHECK(reports.back().find("pcb=0")!=std::string::npos);
+}
+
+TEST_CASE_FIXTURE(Fixture,"TCP diagnostics bound closed reports and rate limit across sockets") {
+    for(int i=0;i<5;++i) {
+        const auto fd=stream();auto* p=fake::tcp.back().get();
+        {Locked lock;p->dead=true;p->error(p->arg,ERR_RST);}
+        tcp.close(fd);
+    }
+    platform::pico::service_tcp_diagnostics(capture);
+    REQUIRE(reports.size()==1);
+    CHECK(reports.back().find("lost=1")!=std::string::npos);
+    fake::now=999;platform::pico::service_tcp_diagnostics(capture);
+    CHECK(reports.size()==1);
+    for(int i=1;i<=4;++i) {
+        fake::now=i*1000;platform::pico::service_tcp_diagnostics(capture);
+    }
+    CHECK(reports.size()==4);
 }

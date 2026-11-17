@@ -20,12 +20,14 @@ struct ip_addr_t { std::uint32_t addr=0; };
 inline void ip_addr_set_any(int, ip_addr_t* p) { p->addr=0; }
 struct pbuf { pbuf* next=nullptr; void* payload=nullptr; u16_t len=0,tot_len=0; };
 struct tcp_pcb;
+using tcp_sent_fn = err_t(*)(void*,tcp_pcb*,u16_t);
 using tcp_recv_fn = err_t(*)(void*,tcp_pcb*,pbuf*,err_t);
 using tcp_error_fn = void(*)(void*,err_t);
 using tcp_connected_fn = err_t(*)(void*,tcp_pcb*,err_t);
 using tcp_accept_fn = err_t(*)(void*,tcp_pcb*,err_t);
 struct tcp_pcb {
     void* arg=nullptr;
+    tcp_sent_fn acknowledged=nullptr;
     tcp_recv_fn recv=nullptr;
     tcp_error_fn error=nullptr;
     tcp_connected_fn connected=nullptr;
@@ -33,6 +35,10 @@ struct tcp_pcb {
     ip_addr_t remote_ip{};
     u16_t remote_port=0;
     unsigned sndbuf=4096, credited=0, options=0;
+    int state=4, rto=6;
+    unsigned snd_wnd=4096, nrtx=0;
+    std::uint32_t snd_nxt=0, lastack=0;
+    void* unsent=nullptr; void* unacked=nullptr;
     bool listening=false, dead=false, nodelay=false, shut=false;
     std::vector<std::uint8_t> sent;
 };
@@ -51,7 +57,7 @@ inline std::function<void()> on_sleep;
 inline std::vector<std::unique_ptr<tcp_pcb>> tcp;
 inline std::vector<std::unique_ptr<udp_pcb>> udp;
 inline err_t connect_result=ERR_OK,write_result=ERR_OK,close_result=ERR_OK;
-inline err_t dns_result=ERR_OK;
+inline err_t dns_result=ERR_OK, output_result=ERR_OK;
 inline unsigned freed_pbufs=0,aborts=0;
 struct Dns { dns_found_callback callback; void* arg; };
 inline std::vector<Dns> dns;
@@ -68,6 +74,7 @@ inline tcp_pcb* tcp_new_ip_type(int) {
 }
 inline void tcp_arg(tcp_pcb* p,void* a) { fake::live(p); p->arg=a; }
 inline void tcp_err(tcp_pcb* p,tcp_error_fn f) { fake::stream(p); p->error=f; }
+inline void tcp_sent(tcp_pcb* p,tcp_sent_fn f) { fake::stream(p); p->acknowledged=f; }
 inline void tcp_recv(tcp_pcb* p,tcp_recv_fn f) { fake::stream(p); p->recv=f; }
 inline err_t tcp_connect(tcp_pcb* p,const ip_addr_t* ip,u16_t port,tcp_connected_fn f) {
     fake::stream(p); p->remote_ip=*ip;p->remote_port=port;p->connected=f;return fake::connect_result;
@@ -86,7 +93,7 @@ inline err_t tcp_write(tcp_pcb* p,const void* data,u16_t n,int) {
     if(fake::write_result!=ERR_OK)return fake::write_result;
     auto* b=static_cast<const std::uint8_t*>(data);p->sent.insert(p->sent.end(),b,b+n);return ERR_OK;
 }
-inline err_t tcp_output(tcp_pcb* p) { fake::stream(p);return ERR_OK; }
+inline err_t tcp_output(tcp_pcb* p) { fake::stream(p);return fake::output_result; }
 inline void tcp_recved(tcp_pcb* p,u16_t n) { fake::stream(p);p->credited+=n; }
 inline err_t tcp_shutdown(tcp_pcb* p,int,int) { fake::stream(p);p->shut=true;return ERR_OK; }
 inline void tcp_nagle_disable(tcp_pcb* p) { fake::stream(p);p->nodelay=true; }
