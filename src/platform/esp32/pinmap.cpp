@@ -30,7 +30,7 @@ static constexpr PinMap BOARD_PINMAP{};
 
 #elif FN_PINMAP == FN_PINMAP_BREADBOARD
 static constexpr PinMap BOARD_PINMAP{
-    .sd = SdSpiPins{ .mosi = 7, .miso = 8, .sck = 6, .cs = 9 },
+    .sd = SdSpiPins{ .mosi = 7, .miso = 8, .sck = 6, .cs = 9, .max_freq_khz = 4000 },
 };
 
 #elif FN_PINMAP == FN_PINMAP_FREENOVA_S3

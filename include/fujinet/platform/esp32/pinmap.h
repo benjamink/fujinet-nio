@@ -9,6 +9,9 @@ struct SdSpiPins {
     int miso = -1;
     int sck = -1;
     int cs = -1;
+    // SPI clock for the card. 20 MHz suits a board with short traces; flying leads on a
+    // breadboard need less.
+    int max_freq_khz = 20000;
 };
 
 struct UartPins {
