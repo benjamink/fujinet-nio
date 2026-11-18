@@ -2,9 +2,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* CS0 serves the ROM table, CS1 the register table that follows it. Both are
- * indexed by A1-A15, so each holds 32768 big-endian words. */
-#define BUS_TABLE_WORDS 32768u
+#include "bus_layout.h"
+
+/* CS0 uses A1-A16; CS1 retains its A1-A15 register window. */
+#define BUS_ROM_WORDS (BUS_ROM_BYTES / 2u)
+#define BUS_CS1_WORDS (BUS_CS1_BYTES / 2u)
 extern uint16_t *const bus_rom_words;
 extern uint16_t *const bus_cs1_words;
 

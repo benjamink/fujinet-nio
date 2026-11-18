@@ -45,7 +45,7 @@ The bus engineering here is mozzwald's. This bridge stands on:
 | Here | From mozzwald, and what changed |
 | --- | --- |
 | `src/pio_rearm_program.c`, `.h` | the PIO read program; a provenance comment only |
-| `src/persistent_reply.S`, `.h`, `src/cpu_reply.h` | Core1's reply loop. Changed: it runs from SCRATCH_X, and a CS1 read looks up the register table that follows the ROM table (his returned a constant) |
+| `src/persistent_reply.S`, `.h`, `src/cpu_reply.h` | Core1's reply loop. Changed: it runs from SCRATCH_X, decodes a 128 KiB ROM, and serves CS1 from its own register table (his returned a constant) |
 | Core1 service loop in `src/bus.c` | from his `msc_main.c`; the CS1 reply source is the only change |
 | `tests/test_pio_rearm.c` | his epio test of the read program, with CS1 reads and write cycles added |
 
@@ -57,29 +57,19 @@ console code.
 
 ## Status
 
-Hardware: a Visor Prism (Palm OS 3.5), a Core2350B on the carrier, NIO on a
-Mac. Everything below was checked by hand; none of it runs in CI.
+Hardware checks used a Visor Prism (Palm OS 3.5) and a Core2350B on the carrier,
+with NIO running on an attached computer. These checks are manual.
 
 Verified on the Prism:
 
-- Module ROM on CS0: the Prism recognises the module and lists its apps, which
-  run in place from the ROM. The apps ask for a 450 ns access time and the
-  Prism reports 330 ns, which works.
-- Two-way CS1 link: 512 words written and read back, 512/512 in 90 ms; 17
-  requests of 1-4096 bytes looped back by the firmware (25,708 bytes each way
-  in 260 ms, about 99 KB/s each way); 14,725 CS1 writes with no check failure.
-  WE stays low 340-406 ns per write and the firmware samples 53 ns after it
-  falls.
-- Through NIO over the packet link, against the `fujibus-link-serial-debug`
-  build: `Clock.GetTime` and `GetTimezone`; an HTTP GET (200, the 577-byte
-  page read in 240 ms); an HTTPS GET (200, 370 ms); two JSON queries answered by
-  NIO's translator (5.0 s, most of it waiting on the remote server). 111
-  requests in one generation, all answered, each in 0-1 ms at the firmware;
-  no resends, corrupt records or timeouts. 15,095 CS1 writes in that run with
-  no check failure.
+- Module ROM on CS0: full 128 KiB reads and interleaved CS1 loopback/NIO Clock
+  traffic pass at a reported 360 ns access time. A ROM containing NioLib and
+  NIO Config also passed installation, Clock Test and reinsertion audits.
+- Earlier CS1 checks also covered HTTP, HTTPS and JSON requests through the
+  `fujibus-link-serial-debug` backend.
 
-Not verified: other Visor models; hot insertion and removal; CS0 access times
-other than the Prism's; NIO restarting under a running Palm app; long-term
+Not verified: other Visor models; removal during an active transfer; other
+access-time settings; NIO restarting under a running Palm app; long-term
 reliability; the placeholder ROM on a Visor.
 
 ## Safety
@@ -150,7 +140,7 @@ one 32-bit snapshot; `src/bus.h` defines how a CS1 write is decoded from it.
 ## How it works
 
 - **CS0 reads**: the Palm's reads of the ROM. PIO1 holds the data pads and
-  Core1 looks each address up in a 64 KiB table in SRAM, in a persistent loop
+  Core1 looks each address up in a 128 KiB table in SRAM, in a persistent loop
   that lives in SCRATCH_X so that Core0's SRAM traffic cannot stall its
   instruction fetches.
 - **CS1 reads**: the same engine answers them from a second table, the
@@ -168,12 +158,10 @@ one 32-bit snapshot; `src/bus.h` defines how a CS1 write is decoded from it.
   Raspberry Pi's reset interface, so `picotool load -f` needs no BOOTSEL
   button.
 
-The firmware is copied to RAM at boot and runs at 150 MHz. The packet-link
-controller owns an 8 KiB request snapshot so a new Palm upload cannot change
-an in-flight request or retry. In comparable builds using a 64 KiB test ROM,
-that change increased static BSS from 219,688 to 227,876 bytes (8,188 bytes;
-the previous pointer was removed). These figures are build-specific. This RAM
-is on the RP2350 bridge, not the ESP32 running NIO.
+The firmware runs from RAM at 150 MHz. The source ROM stays in flash and is
+converted to the SRAM word table before Core1 starts. The packet-link controller
+owns an 8 KiB request snapshot so a new Palm upload cannot change an in-flight
+request or retry.
 
 ## Reproducible setup
 
@@ -229,8 +217,11 @@ and every configure and build checks that (`scripts/check_pio_policy.py`).
 
 ## The ROM
 
-The ROM served on CS0 is a Springboard ROM image of 512 to 65,536 bytes, an
-even number, holding the Handspring card header and the Palm apps. It is built
+CS0 supports ROM images up to **128 KiB (131,072 bytes)**. Images must be an
+even number of bytes, at least 512, holding the Handspring card header and Palm
+databases. Smaller images are filled with `0xff` to the end of the window.
+CS0 decodes A1-A16 and returns `0xffff` above 128 KiB. CS1 retains its 64 KiB
+register window and existing protocol. The ROM is built
 outside this tree; see [dillera/springboard-nio](https://github.com/dillera/springboard-nio)
 and mozzwald's [fujinet-palm](https://github.com/mozzwald/fujinet-palm).
 `scripts/rom2c.py` turns it into the C array the firmware embeds:
@@ -246,6 +237,12 @@ Palm toolchain. It has not been tried in a Visor.
 
 Outputs: `build/firmware/sbnio.elf`, `sbnio.uf2` and `sbnio.bin`. The console
 banner shows the embedded ROM's size and CRC-32.
+
+Use a **360 ns minimum access time**, the tested setting for combined ROM/CS1
+traffic on the Prism. The ROM header should request `HsAT 360`, and Palm clients
+should verify the applied setting with the Handspring API before transfers,
+preserving slower settings. The bridge does not configure the Palm's bus timing;
+330 ns produced a CS1 read failure during testing.
 
 ## Flashing
 
@@ -295,10 +292,19 @@ or from `SBNIO_CONSOLE`, and `SBNIO_SERIAL` picks one board of several.
 | `packet_link` | the packet-link controller against a scripted peer, including its record bytes |
 | `sbnio_abi` | the `SBN_CHECK_STEP` check word, and that registers sit below `SBN_R_RESP`, the reply fits the 64 KiB window and the write register offsets are as ABI 4 says |
 | `bus_write` | `BUS_WRITE_REG` and `BUS_WRITE_DATA` against snapshots built pin by pin |
+| `rom_table` | endian conversion, short-ROM padding, full 128 KiB loading and CS1 isolation |
 | `pio_rearm` | the read engine's PIO program in epio against a model of Core1: paired CS0 and CS1 reads, OE and select overlap, cancellation, a stalled CPU, RESET, writes ignored |
 | `tooling`, `setup` | dependency bootstrap, the build scripts, `rom2c.py` and the PIO policy |
 | `pio_policy` | no `.pio` sources or pioasm rules |
 
 Epio does not model the input synchronizer delay, so `pio_rearm` shows
 instruction behaviour in the emulator, not bus timing, which was measured on
-hardware (Status). No test runs Core1's assembly loop; `pio_rearm` models it.
+hardware (Status). The optional `reply_arm` test executes the actual assembly
+with mocked MMIO. Enable it when configuring a host build with
+`-DSPRINGBOARD_ARM_TEST_PYTHON=/path/to/python-with-unicorn`; it needs Unicorn
+2.1.4 and ARM GNU tools on PATH or selected by `PICO_TOOLCHAIN_PATH`. Neither
+emulator establishes physical timing margin.
+
+For a build with a full 128 KiB ROM, `scripts/verify_rom128_firmware.py BUILD ROM`
+checks flash/SRAM placement, stack separation and UF2/BIN agreement. These
+software checks do not require Palm applications or a ROM builder.

@@ -63,7 +63,8 @@ static uint16_t word(unsigned addr) {
 }
 /* CS1 has its own table, as in persistent_reply.S. */
 static uint16_t table(bool cs1, unsigned addr) {
-    return cs1 ? (uint16_t)~word(addr) : word(addr);
+    return cs1 ? (uint16_t)~word(addr & 0xffffu)
+               : addr < 0x20000u ? word(addr) : 0xffff;
 }
 static struct item pop(struct sim *s, unsigned kind) {
     CHECK(s->head != s->tail);
@@ -83,8 +84,10 @@ static void cpu(struct sim *s) {
         s->cpu_address = q.address;
         s->cpu_valid = (high & 0x2000000f) == 0x2000000a ||
                        (high & 0x2000000f) == 0x20000009;
-        s->cpu_word = table((high & 0xf) == 9,
-                            (unsigned)s->e->gpio.gpio_input_state & 0xfffe);
+        unsigned address = (unsigned)s->e->gpio.gpio_input_state & 0xfffe;
+        address |= (high & 0x00700000u) >> 4;
+        address |= (high & 0x1f000000u) >> 5;
+        s->cpu_word = table((high & 0xf) == 9, address);
         s->due = s->t + s->latency;
         s->cpu_phase = 1;
         ++s->requests;
@@ -198,7 +201,9 @@ static void bus(struct sim *s, uint64_t pins, unsigned addr, unsigned n) {
     s->address = addr;
     if (selected)
         s->last_selected_address = addr;
-    epio_drive_gpios_ext(s->e, EXTERNAL, pins | (addr & 0xfffe));
+    uint64_t high = ((uint64_t)(addr & 0x70000u) << 20) |
+                    ((uint64_t)(addr & 0xf80000u) << 21);
+    epio_drive_gpios_ext(s->e, EXTERNAL, pins | (addr & 0xfffe) | high);
     step(s, n);
 }
 static void init(struct sim *s, unsigned latency, unsigned post,
@@ -235,6 +240,24 @@ static void pair(struct sim *s, unsigned addr, unsigned width, unsigned gap) {
 }
 int main(void) {
     struct sim storage, *s = &storage;
+    /* Cross A16 in both directions, then alternate CS0/CS1 with the high
+     * address bits set. CS1 still aliases at 64 KiB; CS0 rejects A17+. */
+    const unsigned boundaries[] = {0, 0xfffc, 0xfffe, 0x10000, 0x10002,
+                                   0x1fffe, 0xfffe, 0x10000, 0x20000,
+                                   0x40000, 0x800000};
+    init(s, 20, 16, 12);
+    for (unsigned i = 0; i < sizeof(boundaries) / sizeof(boundaries[0]); ++i) {
+        for (unsigned select = 0; select < 2; ++select) {
+            bus(s, select ? READ1 : READ, boundaries[i], 100);
+            CHECK(driven(s));
+            CHECK(((s->e->gpio.gpio_output_state & DATA) >> 20) ==
+                  table(select != 0, boundaries[i]));
+            bus(s, IDLE, 0, 100);
+        }
+    }
+    CHECK(!s->overlap && s->requests == s->completed);
+    epio_free(s->e);
+    puts("128 KiB boundaries, out-of-range ROM and unchanged CS1 aliasing PASS");
     init(s, 20, 16, 12);
     pair(s, 8, 62, 6);
     printf("basic: req%u completed%u enables%u attempted%u cancels%u release%u "

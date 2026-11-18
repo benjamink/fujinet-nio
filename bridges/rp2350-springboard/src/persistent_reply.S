@@ -1,6 +1,6 @@
 /* From mozzwald/fujinet-nio experiment/dual-cs-write-capture (Experiment 2 persistent
  * Core1 reply loop), bridges/rp2350-springboard/src. Hardware-proven on a Visor Prism;
- * the two changes from his version are marked below.
+ * extended here for SCRATCH_X execution, a 128 KiB ROM and a CS1 register table.
  *
  * Separate persistent Core1 experiment. Same RX-first SRAM lookup and PIO
  * ownership protocol; save ABI registers once per arm, not once per request.
@@ -9,6 +9,7 @@
  * stop/fault, and flush it before consuming another completion. */
 .syntax unified
 .thumb
+#include "bus_layout.h"
 /* Changed: SCRATCH_X, a bank Core0 never uses, so Core0's SRAM traffic
  * cannot stall these instruction fetches. */
 .section .scratch_x.sb_persistent_reply,"ax",%progbits
@@ -21,7 +22,7 @@ sb_persistent_reply:
     ldr r3, [r2, #0]
     ldr r4, [r2, #4]
     ldr r2, [r2, #8]
-    ldr r5, =0x1f700000
+    ldr r5, =0x1f600000       /* A17-A23; A16 now selects the upper ROM half */
     ldr r6, =0x2000000f
     ldr r7, =0x2000000a
     mov r12, #0
@@ -45,10 +46,14 @@ sb_persistent_reply:
     and r11, r8, r6
     cmp r11, r7
     bne .Lcs1_snapshot
+    ubfx r11, r9, #1, #15
+    /* A16 is GP36, bit 20 of the owned high-GPIO FIFO snapshot. Never
+     * resample high GPIO here: it could belong to the following cycle. */
+    and r10, r8, #0x100000
+    orr r11, r11, r10, lsr #5
     tst r8, r5
-    itee ne
+    ite ne
     movwne r10, #0xffff
-    ubfxeq r11, r9, #1, #15
     ldrheq r10, [r1, r11, lsl #1]
     str r10, [r3, #0x10]
 .Lposted:
@@ -87,14 +92,14 @@ sb_persistent_reply:
     add r12, r12, #2          /* FFFFFFFF -> 1; 0 -> 2 */
     b .Lnext_request
 /* The selected region is derived only from the owned FIFO snapshot. CS1
- * reads the register table that follows the 64 KiB ROM table (changed;
+ * reads the register table that follows the 128 KiB ROM table (changed;
  * Experiment 2 returned a constant here). A16-A23 alias on CS1. */
 .Lcs1_snapshot:
     add r11, r11, #1
     cmp r11, r7
     bne .Linvalid_snapshot
     ubfx r11, r9, #1, #15
-    orr r11, r11, #0x8000
+    orr r11, r11, #(BUS_ROM_BYTES / 2)
     ldrh r10, [r1, r11, lsl #1]
     str r10, [r3, #0x10]
     b .Lposted
@@ -125,8 +130,7 @@ sb_persistent_reply:
     pop {r4-r11, pc}
 .size sb_persistent_reply, .-sb_persistent_reply
 .ltorg
-/* Keep the ROM byte buffer and native-word table at the October25 baseline
- * SRAM addresses in this controlled build. No executed instruction or delay. */
+/* Retained baseline padding; the larger tables change SRAM placement. */
 .balign 4
 .space 16, 0
 .section .note.GNU-stack,"",%progbits

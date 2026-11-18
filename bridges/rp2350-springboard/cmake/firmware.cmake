@@ -24,6 +24,7 @@ endif()
 add_executable(sbnio
     src/main.c
     src/bus.c
+    src/rom_table.c
     src/link.c
     src/packet_link.c
     src/console.c

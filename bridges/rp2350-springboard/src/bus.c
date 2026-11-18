@@ -1,6 +1,7 @@
 /* Springboard bus service. The CS0/CS1 read path is mozzwald's hardware-proven
  * Experiment 2 engine (pio_rearm_program.c + persistent_reply.S) with its
- * Core1 service loop from his msc_main.c; only the CS1 reply source changed.
+ * Core1 service loop from his msc_main.c, extended for a 128 KiB ROM and a
+ * separate CS1 register table.
  * The write catcher, WE meter and select counters on PIO2 are input-only, so
  * they can never drive the bus. */
 #include "bus.h"
@@ -14,13 +15,6 @@
 #include "pico/multicore.h"
 #include "pio_rearm_program.h"
 #include <apio.h>
-
-/* The 8-byte offset keeps the proven table's modulo-16 SRAM bank alignment. */
-static uint8_t table_backing[4 * BUS_TABLE_WORDS + 16]
-    __attribute__((aligned(16)));
-uint16_t *const bus_rom_words = (uint16_t *)(table_backing + 8);
-uint16_t *const bus_cs1_words =
-    (uint16_t *)(table_backing + 8) + BUS_TABLE_WORDS;
 
 volatile uint32_t bus_write_ring[BUS_WRITE_RING_WORDS]
     __attribute__((aligned(BUS_WRITE_RING_WORDS * 4)));
@@ -116,15 +110,6 @@ static void core1_service(void) {
             tight_loop_contents();
         arm_request = false;
         stop_request = false;
-    }
-}
-
-void bus_load_rom(const uint8_t *rom, uint32_t size) {
-    for (uint32_t i = 0; i < BUS_TABLE_WORDS; ++i) {
-        uint32_t a = 2 * i;
-        uint16_t hi = a < size ? rom[a] : 0xff,
-                 lo = a + 1 < size ? rom[a + 1] : 0xff;
-        bus_rom_words[i] = (uint16_t)(hi << 8 | lo);
     }
 }
 

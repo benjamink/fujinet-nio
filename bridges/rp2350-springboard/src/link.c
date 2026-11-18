@@ -292,7 +292,7 @@ void link_init(void) {
     nio.send = nio_send;
     nio.done = nio_done;
     pl_init(&nio);
-    for (uint32_t i = 0; i < BUS_TABLE_WORDS; ++i)
+    for (uint32_t i = 0; i < BUS_CS1_WORDS; ++i)
         bus_cs1_words[i] = 0;
     reg(SBN_R_MAGIC, SBN_MAGIC_VALUE);
     reg(SBN_R_VERSION, SBN_ABI_VERSION);

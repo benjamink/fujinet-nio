@@ -9,8 +9,8 @@ import argparse
 import sys
 import zlib
 
-# CS0 is only the ROM (include/sbnio.h), so the whole 64 KiB window is usable.
-ROM_MIN, ROM_MAX = 512, 0x10000
+# CS0 decodes A1-A16; keep in sync with src/bus_layout.h.
+ROM_MIN, ROM_MAX = 512, 0x20000
 
 
 def main():
@@ -35,7 +35,10 @@ def main():
         out.write("#include <stdint.h>\n")
         out.write(f"const uint32_t sbnio_rom_size = {len(data)};\n")
         out.write(f"const uint32_t sbnio_rom_crc = 0x{zlib.crc32(data):08x};\n")
-        out.write("const uint8_t sbnio_rom[] = {\n")
+        # Pico's copy_to_ram linker script keeps .flashdata in flash. This
+        # source image is read only at startup, before bus/Core1 service; the
+        # native-word lookup table remains in SRAM for every live bus read.
+        out.write('const uint8_t sbnio_rom[] __attribute__((section(".flashdata.sbnio_rom"))) = {\n')
         for i in range(0, len(data), 16):
             out.write("  " + ", ".join(f"0x{b:02x}" for b in data[i : i + 16]) + ",\n")
         out.write("};\n")

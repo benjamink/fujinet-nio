@@ -33,10 +33,11 @@ _Static_assert((SBN_R_RESP & 1) == 0 && (SBN_RESP_MAX & 1) == 0,
 
 /* CS1 reads use A1-A15: a 64 KiB window of 16-bit words, and the firmware's
  * register table is exactly that window. */
-_Static_assert(BUS_TABLE_WORDS * 2 == 0x10000, "64 KiB window");
+_Static_assert(BUS_ROM_WORDS * 2 == 0x20000, "128 KiB ROM window");
+_Static_assert(BUS_CS1_WORDS * 2 == 0x10000, "64 KiB register window");
 _Static_assert(SBN_R_RESP + SBN_RESP_MAX <= 0x10000,
                "the reply fits in the 64 KiB window");
-_Static_assert(SBN_R_RESP + SBN_RESP_MAX <= 2 * BUS_TABLE_WORDS,
+_Static_assert(SBN_R_RESP + SBN_RESP_MAX <= 2 * BUS_CS1_WORDS,
                "the reply fits in the firmware's table");
 
 /* Lengths travel in 16-bit registers and become one packet-link record. */

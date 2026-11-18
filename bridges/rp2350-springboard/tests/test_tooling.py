@@ -284,13 +284,28 @@ class Tooling(unittest.TestCase):
             self.assertIn("sbnio_rom_size = 512;", text)
             self.assertIn("sbnio_rom_crc = 0x%08x;" % zlib.crc32(erased), text)
             self.assertEqual(text.count("0xff"), 512)
-            for size in (0, 510, 513, 0x10002):
+            for size in (0, 510, 513, 0x10001, 0x20001, 0x20002):
                 rom.write_bytes(b"\x00" * size)
                 result = run(rom, out)
                 self.assertNotEqual(result.returncode, 0, size)
-                self.assertIn("must be 512-65536 bytes and even", result.stderr)
-            rom.write_bytes(b"\x00" * 0x10000)
-            self.assertEqual(run(rom, out).returncode, 0)
+                self.assertIn("must be 512-131072 bytes and even", result.stderr)
+            for size in (0x10000, 0x10002, 0x20000):
+                image = bytes(
+                    (i * 73 ^ i >> 8 ^ i >> 16) & 255 for i in range(size)
+                )
+                rom.write_bytes(image)
+                self.assertEqual(run(rom, out).returncode, 0)
+                text = out.read_text()
+                self.assertIn("sbnio_rom_size = %d;" % size, text)
+                self.assertIn("sbnio_rom_crc = 0x%08x;" % zlib.crc32(image), text)
+                self.assertIn('section(".flashdata.sbnio_rom")', text)
+                initializer = text.split("= {\n", 1)[1].split("};", 1)[0]
+                embedded = bytes(
+                    int(value.strip(), 16)
+                    for value in initializer.split(",")
+                    if value.strip()
+                )
+                self.assertEqual(embedded, image)
             self.assertNotEqual(run("--erased", rom, out).returncode, 0)
             self.assertNotEqual(run(out).returncode, 0)
 
