@@ -61,7 +61,9 @@ TEST_CASE("StdioFile: a write right after a read lands at the logical position")
 
 namespace {
 bool g_medium_in = true;
+int g_probes = 0;
 bool medium_in() noexcept { return g_medium_in; }
+bool counted_medium_in() noexcept { ++g_probes; return g_medium_in; }
 } // namespace
 
 TEST_CASE("stdio filesystem: available() is true by default and follows an injected probe")
@@ -84,5 +86,45 @@ TEST_CASE("stdio filesystem: available() is true by default and follows an injec
     CHECK(plain->available());                 // only the filesystem with the probe is affected
     g_medium_in = true;                        // card back
     CHECK(card->available());
+    std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("stdio filesystem: operations give a removed medium the chance to recover")
+{
+    // The ESP32 remounts a card that is back from inside its probe. A file operation must reach
+    // the probe, or an application writing to a re-inserted card would fail until something else
+    // asked available().
+    const auto dir = std::filesystem::temp_directory_path() / "fnio_fs_stdio_recover";
+    std::filesystem::create_directories(dir);
+    auto card = fujinet::fs::create_stdio_filesystem(dir.string(), "sd0", fujinet::fs::FileSystemKind::LocalSD,
+                                                     nullptr, &counted_medium_in);
+    REQUIRE(card);
+
+    SUBCASE("while the medium is down every operation probes it") {
+        g_medium_in = false;
+        CHECK_FALSE(card->available());
+        g_probes = 0;
+        card->exists("/a");
+        card->exists("/b");
+        card->exists("/c");
+        CHECK(g_probes == 3);
+    }
+    SUBCASE("an operation after the medium is back probes it again") {
+        g_medium_in = false;
+        CHECK_FALSE(card->available());
+        g_medium_in = true;                    // back, but nobody has asked available()
+        g_probes = 0;
+        card->exists("/a");
+        CHECK(g_probes == 1);
+        card->exists("/b");                    // up again: throttled, no probe per operation
+        CHECK(g_probes == 1);
+    }
+    SUBCASE("a burst of operations on a medium that is up probes it only a few times") {
+        g_medium_in = true;
+        g_probes = 0;
+        for (int i = 0; i < 100; ++i) card->exists("/x");
+        CHECK(g_probes >= 1);
+        CHECK(g_probes <= 3);
+    }
     std::filesystem::remove_all(dir);
 }

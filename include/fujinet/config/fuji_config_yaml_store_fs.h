@@ -1,9 +1,12 @@
 #pragma once
 
+#include <memory>
 #include <string>
 
 #include "fujinet/config/fuji_config.h"
 #include "fujinet/fs/filesystem.h"
+
+namespace fujinet::fs { class StorageManager; }
 
 namespace fujinet::config {
 
@@ -31,5 +34,13 @@ private:
     FujiConfig loadFromFs(fs::IFileSystem& fs);
     void saveToFs(fs::IFileSystem& fs, const FujiConfig& cfg);
 };
+
+// The config store for a device with local storage: the SD card ("sd0") is the primary when one
+// was mounted at start-up, with flash as a mirror that every save also writes, so the settings
+// (wifi credentials among them) survive a pulled card and seed a new one. With no card, flash is
+// the primary. With neither, the store is in memory only. Shared by the ESP32 and the Pico so a
+// user gets the same behaviour from either.
+std::unique_ptr<FujiConfigStore> make_local_storage_config_store(fs::StorageManager& storage,
+                                                                 FujiConfig defaults);
 
 } // namespace fujinet::config

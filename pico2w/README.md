@@ -61,7 +61,7 @@ See the ordered measurements below for exact baselines and component totals.
 | TCP protocol | Portable TCP state machine over raw lwIP |
 | TLS, HTTP | ALTCP/mbedTLS verified TLS; bounded HTTP/1.x request/response adapter |
 | Channel | TinyUSB CDC for FujiBus; UART0 is reserved for logs/console |
-| Filesystem | LittleFS `flash` on final 1 MiB, including persistent `fujinet.yaml` |
+| Filesystem | LittleFS `flash` on final 1 MiB (`fujinet.yaml` when there is no SD card, and its mirror otherwise) |
 | Console | Cooperative diagnostics and filesystem shell over UART0 |
 | Memory stats | Approximate (newlib `mallinfo`) |
 | Threads | Shims: `compat/mutex` is a real Pico SDK mutex; `compat/condition_variable` polls; no service tasks |
@@ -140,7 +140,7 @@ retransmission policy, wire protocol, SD configuration or client timeout is chan
 
 ### Filesystem
 
-LittleFS persists `fujinet.yaml` on onboard flash. TNFS and HTTP filesystems use
+LittleFS holds `fujinet.yaml` on onboard flash (the primary without an SD card, the mirror with one). TNFS and HTTP filesystems use
 the implemented network backends. An SD card on SPI is the filesystem `sd0` (below).
 
 ### SD card (`sd0`)
@@ -174,7 +174,9 @@ wiring (cards allow 25 MHz, `NIO_PICO_SD_BAUD`). The pins are CMake cache variab
   app store and disk images keep pointing at `sd0`, their writes fail while the card is out, and
   everything works again by itself when the card is back.
 - As on ESP32, a present `sd0` becomes the default persistent store for disk images and the
-  app store. `fujinet.yaml` stays on flash.
+  app store, and as on ESP32 it is the primary for `fujinet.yaml` with flash as a mirror that
+  every save also writes (`config::make_local_storage_config_store`, shared with ESP32). With no
+  card, flash alone holds everything.
 - The driver (`src/platform/pico/sd_card.cpp`) speaks SPI mode directly. FatFs R0.15 comes from
   the Pico SDK's TinyUSB (`lib/tinyusb/lib/fatfs`) and is built with `pico2w/fatfs/ffconf.h`,
   so the SDK's TinyUSB submodules must be fetched. Core 0 only: FatFs is not built reentrant.

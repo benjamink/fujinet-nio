@@ -8,17 +8,12 @@
 
 namespace fujinet::platform {
 
-static constexpr const char* TAG = "platform";
-
-// Config lives in fujinet.yaml on the "flash" filesystem; in memory until one is registered.
+// Config lives in fujinet.yaml: on the SD card when one was mounted at start-up, mirrored to
+// "flash"; on flash alone otherwise. The same as the ESP32 (config::make_local_storage_config_store).
 std::unique_ptr<config::FujiConfigStore> create_fuji_config_store(fs::StorageManager& storage)
 {
     const auto defaults = config::default_config_for(build::current_build_profile());
-    auto* flash = storage.get("flash");
-    if (!flash) {
-        FN_LOGW(TAG, "No 'flash' filesystem registered; config stays in memory");
-    }
-    return std::make_unique<config::YamlFujiConfigStoreFs>(flash, nullptr, "fujinet.yaml", defaults, false);
+    return config::make_local_storage_config_store(storage, defaults);
 }
 
 } // namespace fujinet::platform

@@ -1,5 +1,6 @@
 #include "fujinet/config/fuji_config_yaml_store_fs.h"
 #include "fujinet/core/logging.h"
+#include "fujinet/fs/storage_manager.h"
 
 #include <cctype>
 #include <fstream>
@@ -606,6 +607,24 @@ void YamlFujiConfigStoreFs::saveToFs(fs::IFileSystem& fs, const FujiConfig& cfg)
     FN_LOGI(TAG,
             "Saved config to '%s' on '%s'",
             _relPath.c_str(), fs.name().c_str());
+}
+
+std::unique_ptr<FujiConfigStore> make_local_storage_config_store(fs::StorageManager& storage,
+                                                                 FujiConfig defaults)
+{
+    // "sd0" = SD card (only if one was mounted at start-up), "flash" = internal LittleFS.
+    auto* sd = storage.get("sd0");
+    auto* flash = storage.get("flash");
+
+    if (!sd && !flash) {
+        FN_LOGE(TAG, "No 'sd0' or 'flash' filesystem registered; config will stay in memory");
+    }
+
+    return std::make_unique<YamlFujiConfigStoreFs>(
+        sd ? sd : flash,                // primary
+        sd && flash ? flash : nullptr,  // backup (mirror)
+        "fujinet.yaml",
+        std::move(defaults));
 }
 
 } // namespace fujinet::config

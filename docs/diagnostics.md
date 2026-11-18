@@ -322,8 +322,9 @@ It depends on:
     `sync flash sd0 --apply` carries the app store, appkeys and credentials over;
   - back the card up to flash: `sync sd0 flash --apply`.
 
-  On the Pico the live `fujinet.yaml` stays on flash, so a copy on the card is only a backup.
-  Both filesystems must be local and available; `sync` says so if the card is out.
+  Both filesystems must be local and available; `sync` says so if the card is out. The Pico and the
+  ESP32 behave the same here: `sd0` exists only if a card was mounted at start-up, `fujinet.yaml`
+  is saved to both, and the app store and appkeys follow the card.
 
 ### Prompt + echo
 

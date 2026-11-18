@@ -1103,3 +1103,69 @@ TEST_CASE("POSIX config factory emits Visor defaults only for its channel and st
     CHECK_FALSE(fuji.config().visor.validationError.empty());
     CHECK(read_file(*host, "/fujinet.yaml") == invalid);
 }
+
+// The ESP32 and the Pico build their config store with make_local_storage_config_store(), so a
+// user gets the same behaviour from either: SD primary with a flash mirror, flash alone without a card.
+TEST_CASE("make_local_storage_config_store: a card is the primary and flash mirrors every save")
+{
+    fujinet::fs::StorageManager storage;
+    auto sd_up = std::make_unique<fujinet::tests::MemoryFileSystem>("sd0");
+    auto flash_up = std::make_unique<fujinet::tests::MemoryFileSystem>("flash");
+    auto* sd = sd_up.get();
+    auto* flash = flash_up.get();
+    REQUIRE(storage.registerFileSystem(std::move(sd_up)));
+    REQUIRE(storage.registerFileSystem(std::move(flash_up)));
+
+    auto store = fujinet::config::make_local_storage_config_store(storage, {});
+    FujiConfig cfg;
+    cfg.general.deviceName = "saved-name";
+    store->save(cfg);
+
+    CHECK(sd->exists("/fujinet.yaml"));
+    CHECK(flash->exists("/fujinet.yaml"));
+    CHECK(read_file(*sd, "fujinet.yaml") == read_file(*flash, "fujinet.yaml"));
+    CHECK(store->load().general.deviceName == "saved-name");
+}
+
+TEST_CASE("make_local_storage_config_store: without a card flash is the primary")
+{
+    fujinet::fs::StorageManager storage;
+    auto flash_up = std::make_unique<fujinet::tests::MemoryFileSystem>("flash");
+    auto* flash = flash_up.get();
+    REQUIRE(storage.registerFileSystem(std::move(flash_up)));
+
+    auto store = fujinet::config::make_local_storage_config_store(storage, {});
+    FujiConfig cfg;
+    cfg.general.deviceName = "flash-only";
+    store->save(cfg);
+
+    CHECK(flash->exists("/fujinet.yaml"));
+    CHECK(store->load().general.deviceName == "flash-only");
+}
+
+TEST_CASE("make_local_storage_config_store: a new card is seeded from the flash settings")
+{
+    fujinet::fs::StorageManager storage;
+    auto sd_up = std::make_unique<fujinet::tests::MemoryFileSystem>("sd0");
+    auto flash_up = std::make_unique<fujinet::tests::MemoryFileSystem>("flash");
+    auto* sd = sd_up.get();
+    auto* flash = flash_up.get();
+    REQUIRE(storage.registerFileSystem(std::move(sd_up)));
+    REQUIRE(storage.registerFileSystem(std::move(flash_up)));
+    create_file(*flash, "/fujinet.yaml", "fujinet:\n  device_name: \"from-flash\"\n");
+
+    auto store = fujinet::config::make_local_storage_config_store(storage, {});
+    CHECK(store->load().general.deviceName == "from-flash");
+    CHECK(sd->exists("/fujinet.yaml"));    // the card now has it too
+}
+
+TEST_CASE("make_local_storage_config_store: with no local filesystem the config lives in memory")
+{
+    fujinet::fs::StorageManager storage;
+    auto store = fujinet::config::make_local_storage_config_store(storage, {});
+    REQUIRE(store);
+    FujiConfig cfg;
+    cfg.general.deviceName = "nowhere";
+    store->save(cfg);                      // must not crash
+    CHECK_NOTHROW(store->load());
+}

@@ -122,7 +122,13 @@ public:
 
     FileSystemKind kind() const override { return _kind; }
     std::string    name() const override { return _name; }
-    bool available() const override { return !_isAvailable || _isAvailable(); }
+    bool available() const override
+    {
+        if (!_isAvailable) return true;
+        _up = _isAvailable();
+        _lastProbe = std::chrono::steady_clock::now();
+        return _up;
+    }
 
     bool exists(const std::string& path) override
     {
@@ -251,8 +257,23 @@ public:
     }
 
 private:
+    // Every operation names a path, so this is where a removable medium gets its chance to
+    // recover: the probe is what unmounts a card that has gone and mounts one that is back.
+    // While the medium is up it is asked at most every kProbeInterval, so a burst of operations
+    // costs one status command, not one each; while it is down, on every operation (the
+    // platform bounds how often it actually retries).
+    void recover() const
+    {
+        if (!_isAvailable) return;
+        const auto now = std::chrono::steady_clock::now();
+        if (_up && now - _lastProbe < kProbeInterval) return;
+        _up = _isAvailable();
+        _lastProbe = now;
+    }
+
     std::string fullPath(const std::string& rel) const
     {
+        recover();
         // rel is expected to be absolute within the FS ("/", "/foo", etc.)
         if (rel.empty() || rel == "/") {
             return _root;
@@ -280,6 +301,9 @@ private:
     FileSystemKind _kind;
     FileActivityHook _onActivity{};
     AvailabilityProbe _isAvailable{};
+    static constexpr std::chrono::milliseconds kProbeInterval{200};
+    mutable bool _up{true};
+    mutable std::chrono::steady_clock::time_point _lastProbe{};
 };
 
 // Factory
