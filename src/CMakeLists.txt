@@ -83,6 +83,7 @@ set(FN_IDF_SOURCES
         lib/modem_device_init.cpp
         lib/native_framer.cpp
         lib/packet_link.cpp
+        lib/persist_sync.cpp
         lib/netiec_ingress.cpp
         lib/network_device.cpp
         lib/network_device_init.cpp

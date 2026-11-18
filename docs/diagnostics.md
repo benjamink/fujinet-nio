@@ -310,7 +310,20 @@ It depends on:
 - `dump`
 - `fs` — list the mounted filesystems. One whose medium is out (a pulled SD card) is
   still listed, as `sd0 (not available)`. Whether it works again when the card is back depends on
-  the platform (the Pico driver re-initialises it by itself).
+  the platform (the Pico and ESP32 drivers re-initialise it by themselves).
+- `sync <from> <to> [--apply] [--overwrite]` — copy the persistent data one way between flash and
+  the SD card: `/FujiNet` (appkeys and the app store) and `/fujinet.yaml` (configuration, wifi
+  credentials). Disk images are not touched. It is a dry run unless `--apply` is given, listing
+  each file as `would copy`, `would overwrite` or `differs, kept`. A file that exists on `<to>` with
+  different content is kept unless `--overwrite` is given. Nothing is ever deleted or merged,
+  and a file only on `<to>` is left alone. Each file is written under a temporary name and renamed
+  into place, so a failure leaves the old file in one piece. Typical uses:
+  - the card was added after the device had been used on flash: reboot with the card in, then
+    `sync flash sd0 --apply` carries the app store, appkeys and credentials over;
+  - back the card up to flash: `sync sd0 flash --apply`.
+
+  On the Pico the live `fujinet.yaml` stays on flash, so a copy on the card is only a backup.
+  Both filesystems must be local and available; `sync` says so if the card is out.
 
 ### Prompt + echo
 

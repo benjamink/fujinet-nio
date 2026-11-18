@@ -40,6 +40,7 @@ private:
     bool cmd_rm(IConsoleTransport& io, const std::vector<std::string_view>& argv);
     bool cmd_rmdir(IConsoleTransport& io, const std::vector<std::string_view>& argv);
     bool cmd_mv(IConsoleTransport& io, const std::vector<std::string_view>& argv);
+    bool cmd_sync(IConsoleTransport& io, const std::vector<std::string_view>& argv);
 
     fujinet::fs::StorageManager& _storage;
     fujinet::fs::PathResolver _pathResolver;

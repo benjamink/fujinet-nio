@@ -243,6 +243,69 @@ TEST_CASE("FsShell fs marks a filesystem whose medium is out, and stops once it 
     CHECK(io.out == "flash\nsd0\n");
 }
 
+TEST_CASE("FsShell sync is a dry run by default, copies with --apply, and keeps differing files")
+{
+    using fujinet::fs::FileSystemKind;
+    fujinet::fs::StorageManager storage;
+    auto flash_up = std::make_unique<fujinet::tests::MemoryFileSystem>("flash", FileSystemKind::LocalFlash);
+    auto sd_up = std::make_unique<fujinet::tests::MemoryFileSystem>("sd0", FileSystemKind::LocalSD);
+    auto* flash = flash_up.get();
+    auto* sd = sd_up.get();
+    REQUIRE(storage.registerFileSystem(std::move(flash_up)));
+    REQUIRE(storage.registerFileSystem(std::move(sd_up)));
+    REQUIRE(flash->createDirectory("/FujiNet"));
+    REQUIRE(flash->create_file("/FujiNet/00010100.key", {1, 2, 3}));
+    REQUIRE(flash->create_file("/fujinet.yaml", {'a'}));
+    REQUIRE(sd->createDirectory("/FujiNet"));
+    REQUIRE(sd->create_file("/fujinet.yaml", {'b'}));   // differs from flash
+
+    FakeConsoleTransport io;
+    fujinet::console::ConsoleCommandRegistry reg;
+    fujinet::console::FsShell sh(storage);
+    REQUIRE(sh.register_commands(reg, io));
+
+    SUBCASE("without --apply nothing changes") {
+        std::vector<std::string> argv_s = {"sync", "flash", "sd0"};
+        REQUIRE(reg.dispatch(sv_argv(argv_s)).has_value());
+        CHECK(io.out.find("would copy: /FujiNet/00010100.key") != std::string::npos);
+        CHECK(io.out.find("differs, kept: /fujinet.yaml") != std::string::npos);
+        CHECK(io.out.find("dry run, nothing changed: flash -> sd0: 1 new, 0 overwritten, 0 identical, 1 kept, 0 failed")
+              != std::string::npos);
+        CHECK(io.out.find("add --apply") != std::string::npos);
+        CHECK_FALSE(sd->exists("/FujiNet/00010100.key"));
+    }
+    SUBCASE("--apply copies the new file and keeps the differing one") {
+        std::vector<std::string> argv_s = {"sync", "flash:", "sd0:/", "--apply"};
+        REQUIRE(reg.dispatch(sv_argv(argv_s)).has_value());
+        CHECK(io.out.find("copied: /FujiNet/00010100.key") != std::string::npos);
+        CHECK(io.out.find("synced flash -> sd0: 1 new, 0 overwritten, 0 identical, 1 kept, 0 failed") != std::string::npos);
+        CHECK(io.out.find("use --overwrite") != std::string::npos);
+        CHECK(sd->file_bytes("/FujiNet/00010100.key") == std::vector<std::uint8_t>{1, 2, 3});
+        CHECK(sd->file_bytes("/fujinet.yaml") == std::vector<std::uint8_t>{'b'});
+    }
+    SUBCASE("--apply --overwrite replaces it") {
+        std::vector<std::string> argv_s = {"sync", "flash", "sd0", "--overwrite", "--apply"};
+        REQUIRE(reg.dispatch(sv_argv(argv_s)).has_value());
+        CHECK(io.out.find("overwritten: /fujinet.yaml") != std::string::npos);
+        CHECK(sd->file_bytes("/fujinet.yaml") == std::vector<std::uint8_t>{'a'});
+    }
+    SUBCASE("bad arguments and a missing card say so") {
+        std::vector<std::string> one = {"sync", "flash"};
+        REQUIRE(reg.dispatch(sv_argv(one)).has_value());
+        CHECK(io.out.find("usage: sync <from> <to>") != std::string::npos);
+
+        io.out.clear();
+        std::vector<std::string> nofs = {"sync", "flash", "nope"};
+        REQUIRE(reg.dispatch(sv_argv(nofs)).has_value());
+        CHECK(io.out == "error: unknown filesystem: nope\n");
+
+        io.out.clear(); sd->set_available(false);
+        std::vector<std::string> out = {"sync", "flash", "sd0", "--apply"};
+        REQUIRE(reg.dispatch(sv_argv(out)).has_value());
+        CHECK(io.out == "error: sd0 is not available\n");
+    }
+}
+
 TEST_CASE("FsShell rm/rmdir semantics + wildcards + mv to directory")
 {
     fujinet::fs::StorageManager storage;

@@ -210,6 +210,7 @@ set(FUJINET_NIO_SOURCES
         src/lib/modem_device_init.cpp
         src/lib/native_framer.cpp
         src/lib/packet_link.cpp
+        src/lib/persist_sync.cpp
         src/lib/netiec_ingress.cpp
         src/lib/network_device.cpp
         src/lib/network_device_init.cpp

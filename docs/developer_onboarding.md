@@ -388,6 +388,7 @@ commands:
   reboot - reboot/reset via platform hook (if supported)
   rm - remove file(s)
   rmdir - remove directory
+  sync - copy persistent data (appkeys, app store, fujinet.yaml) one way between flash and SD
 
 diagnostics:
 

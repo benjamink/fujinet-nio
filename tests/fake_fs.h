@@ -139,6 +139,8 @@ public:
         // parent of dest must exist
         const std::string parent = parent_path(t);
         if (!is_dir_path(parent)) return false;
+        // FatFs refuses to rename onto an existing file; POSIX and LittleFS replace it.
+        if (_renameRefusesExisting && _files.count(t)) return false;
         _files[t] = std::move(it->second);
         _files.erase(it);
         return true;
@@ -229,6 +231,7 @@ public:
     std::vector<std::uint8_t>& file_bytes(const std::string& path) { return _files[norm(path)]; }
     std::size_t flush_count() const { return _flushCount; }
     void set_fail_flush(bool value) { _failFlush = value; }
+    void set_rename_refuses_existing(bool value) { _renameRefusesExisting = value; }
 
 private:
     static std::string norm(const std::string& in)
@@ -269,6 +272,7 @@ private:
     std::vector<std::string> _dirs;
     std::size_t _flushCount{0};
     bool _failFlush{false};
+    bool _renameRefusesExisting{false};
 };
 
 } // namespace fujinet::tests

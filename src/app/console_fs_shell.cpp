@@ -3,6 +3,7 @@
 #include "fujinet/console/console_commands.h"
 #include "fujinet/console/console_engine.h" // IConsoleTransport
 #include "fujinet/fs/filesystem.h"
+#include "fujinet/fs/persist_sync.h"
 #include "fujinet/fs/storage_manager.h"
 #include "fujinet/platform/time.h"
 
@@ -349,6 +350,10 @@ bool FsShell::register_commands(ConsoleCommandRegistry& reg, IConsoleTransport& 
     ok &= reg.register_command(ConsoleCommandSpec{"mv", "rename within a filesystem", "mv <from> <to>"}, [&](const auto& argv) {
         return this->cmd_mv(io, argv);
     });
+    ok &= reg.register_command(
+        ConsoleCommandSpec{"sync", "copy persistent data (appkeys, app store, fujinet.yaml) one way between flash and SD",
+                           "sync <from> <to> [--apply] [--overwrite]"},
+        [&](const auto& argv) { return this->cmd_sync(io, argv); });
     if (!ok) {
         io.write_line("error: FsShell failed to register one or more commands (name collision?)");
     }
@@ -767,6 +772,73 @@ bool FsShell::cmd_mv(IConsoleTransport& io, const std::vector<std::string_view>&
 
     if (!fs->rename(from.path, dst)) {
         io.write_line("error: mv failed");
+    }
+    return true;
+}
+
+// "sd0", "sd0:" and "sd0:/" all name the filesystem.
+static std::string fs_name_arg(std::string_view arg)
+{
+    std::string name{arg};
+    const auto colon = name.find(':');
+    if (colon != std::string::npos) name.resize(colon);
+    return name;
+}
+
+bool FsShell::cmd_sync(IConsoleTransport& io, const std::vector<std::string_view>& argv)
+{
+    using fujinet::fs::SyncAction;
+
+    std::vector<std::string_view> names;
+    fujinet::fs::PersistSyncOptions options;
+    for (std::size_t i = 1; i < argv.size(); ++i) {
+        if (argv[i] == "--apply") options.apply = true;
+        else if (argv[i] == "--overwrite") options.overwrite = true;
+        else names.push_back(argv[i]);
+    }
+    if (names.size() != 2) {
+        io.write_line("error: usage: sync <from> <to> [--apply] [--overwrite]");
+        io.write_line("  copies /FujiNet (appkeys, app store) and /fujinet.yaml from <from> to <to>.");
+        io.write_line("  Without --apply it only lists what would happen. Nothing is ever deleted.");
+        io.write_line("  A file that differs on <to> is kept unless --overwrite is given.");
+        return true;
+    }
+
+    const std::string from_name = fs_name_arg(names[0]);
+    const std::string to_name = fs_name_arg(names[1]);
+    auto* from = _storage.get(from_name);
+    auto* to = _storage.get(to_name);
+    if (!from || !to) {
+        io.write_line(std::string("error: unknown filesystem: ") + (from ? to_name : from_name));
+        return true;
+    }
+
+    const auto summary = fujinet::fs::sync_persistent(*from, *to, options,
+        [&](const std::string& path, SyncAction action) {
+            const char* what = nullptr;
+            switch (action) {
+            case SyncAction::Copy: what = options.apply ? "copied" : "would copy"; break;
+            case SyncAction::Overwrite: what = options.apply ? "overwritten" : "would overwrite"; break;
+            case SyncAction::Conflict: what = "differs, kept"; break;
+            case SyncAction::Failed: what = "FAILED"; break;
+            case SyncAction::Identical: return;  // counted in the summary
+            }
+            io.write_line(std::string(what) + ": " + path);
+        });
+
+    if (!summary.error.empty()) {
+        io.write_line("error: " + summary.error);
+        return true;
+    }
+    io.write_line(std::string(options.apply ? "synced " : "dry run, nothing changed: ") + from_name + " -> " + to_name +
+                  ": " + std::to_string(summary.copied) + " new, " + std::to_string(summary.overwritten) +
+                  " overwritten, " + std::to_string(summary.identical) + " identical, " +
+                  std::to_string(summary.conflicts) + " kept, " + std::to_string(summary.failed) + " failed");
+    if (summary.conflicts > 0 && !options.overwrite) {
+        io.write_line("files marked 'differs, kept' are not changed; use --overwrite to replace them");
+    }
+    if (!options.apply) {
+        io.write_line("add --apply to do it");
     }
     return true;
 }
