@@ -10,7 +10,7 @@ struct SdSpiPins {
     int sck = -1;
     int cs = -1;
     // SPI clock for the card. 20 MHz suits a board with short traces; flying leads on a
-    // breadboard need less.
+    // breadboard may need less, a good figure for dodgy wiring is 4000.
     int max_freq_khz = 20000;
 };
 
