@@ -16,4 +16,8 @@ bool init_sdcard_spi();
 // False if no card is mounted (or the board has no SD pins).
 bool sdcard_present() noexcept;
 
+// True if a card is mounted right now. Registration of "sd0" asks this once at start-up, so a
+// board with no card (or no SD pins) leaves "sd0" out and "persist:/" lands on flash.
+bool sdcard_mounted() noexcept;
+
 } // namespace fujinet::platform::esp32

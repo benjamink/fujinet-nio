@@ -137,6 +137,11 @@ bool sdcard_present() noexcept
     return mount_sdcard() == ESP_OK;
 }
 
+bool sdcard_mounted() noexcept
+{
+    return s_sdcard != nullptr;
+}
+
 bool init_sdcard_spi()
 {
     using fujinet::platform::esp32::pinmap;

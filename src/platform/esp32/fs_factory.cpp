@@ -31,7 +31,11 @@ std::unique_ptr<fujinet::fs::IFileSystem> create_flash_filesystem()
 
 std::unique_ptr<fujinet::fs::IFileSystem> create_sdcard_filesystem()
 {
-    // once SD is mounted at /sdcard
+    // No card mounted at start-up (or no SD pins): no "sd0", so "persist:/" and the config store
+    // use flash. A card pulled later keeps "sd0" registered and reports available() == false.
+    if (!sdcard_mounted()) {
+        return nullptr;
+    }
     return fujinet::fs::create_stdio_filesystem(
         "/sdcard",
         "sd0",
