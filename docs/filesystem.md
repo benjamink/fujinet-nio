@@ -187,10 +187,11 @@ esp_vfs_fat_sdmmc_mount("/sdcard", ...);
 // Or esp_vfs_littlefs for SD LittleFS variants
 ```
 
-We register:
+We register it only when a card was mounted at start-up (see 5.2 for the policy):
 
 ```cpp
-auto sd = fs::create_stdio_filesystem("/sdcard", "sd0", FileSystemKind::LocalSD);
+auto sd = fs::create_stdio_filesystem("/sdcard", "sd0", FileSystemKind::LocalSD,
+                                      &note_activity, &sdcard_present);
 core.storageManager().registerFileSystem(std::move(sd));
 ```
 
@@ -259,8 +260,11 @@ The selection order is:
 
 1. `host` - POSIX and embedded-host runs. For the POSIX app this is usually
    `./fujinet-data`; for embedded AltirraSDL it is the configured `configdir`.
-2. `sd0` - ESP32 SD-card-backed storage when available.
-3. `flash` - ESP32 internal flash fallback.
+2. `sd0` - the SD card, on the ESP32 and the Pico, when one was mounted at start-up.
+3. `flash` - internal flash, when there is no `sd0`.
+
+The choice looks at what is *registered*, not at `available()`: a card pulled after
+start-up keeps `sd0` selected (see 5.2).
 
 This is intentionally a `StorageManager` responsibility rather than an
 `IFileSystem` responsibility: the choice depends on the set of filesystems that
@@ -294,6 +298,54 @@ concrete target is `host:`, `sd0:`, or `flash:`.
 Use the triple-slash form for absolute paths. This keeps the string compatible
 with clients that route FujiNet operations by detecting `://`: the URI scheme is
 `persist`, the authority is empty, and the path is `/FujiNet/fe0c0101.key`.
+
+### 5.2 Flash and the SD card (ESP32 and Pico)
+
+The ESP32 and the Pico follow the same policy, so a user gets the same behaviour from either
+device. It decides what `persist:/` means, which is also what the app store, appkeys and disk
+images use through `defaultPersistentFileSystem()`.
+
+- **Card in at boot:** `persist:/` uses the SD card (`sd0`).
+- **No card at boot:** `sd0` is not registered at all, and `persist:/` uses flash.
+- **Card inserted after boot:** it is ignored until the device is reset. The user may also want to
+  copy their data across with `sync flash sd0 --apply` (below).
+- **Card removed after boot** (to copy files on a PC, say): `sd0` stays registered but is treated
+  as missing. `persist:/` does **not** fall back to flash, so application data cannot end up in
+  two places that disagree. Writes to the app store fail with an error while the card is out. The
+  console `fs` command lists `sd0 (not available)` and `appstore.status` shows `usable: false`
+  (`IFileSystem::available()`).
+- **Card put back:** it is picked up again on the next file access, with no reset. A pulled card
+  pauses use of `persist:/`; it does not switch to flash.
+
+**Exception: the configuration (`fujinet.yaml`).** The config does not go through `persist:/`.
+`config::make_local_storage_config_store()` (shared by both platforms, see section 8) makes the
+card the primary when mounted at boot, with flash mirroring every save. With the card out, a config
+change still saves to flash, so a wifi change is not lost. The card's copy is then older, and it
+wins after the next reboot; `sync flash sd0 --apply --overwrite` replaces it with the newer flash
+copy.
+
+**Direct paths are unaffected.** A path that names a filesystem, such as `flash:/path/foo.txt` or
+`sd0:/bar/qux.txt`, goes to that filesystem whatever `persist:/` currently means. `sd0:/...` fails
+with an unknown filesystem if no card was mounted at boot, and fails while the card is out.
+
+**How it is implemented**
+
+- Registration: the platform registers `sd0` only if its card mounted at start-up
+  (`create_sdcard_filesystem()` on the ESP32, `create_sd_filesystem()` on the Pico).
+- `available()`: the ESP32 injects an `AvailabilityProbe` into the stdio filesystem
+  (`sdcard_present()`, a status command to the card); the Pico driver asks the card itself.
+- Recovery: a card that has gone is unmounted and an empty slot is retried about once a second.
+  The stdio filesystem consults the probe before each operation (at most every 200 ms while the
+  card is up), so an application writing to a returned card needs nothing else to trigger the
+  re-mount, which is how the Pico behaves as well. Files opened before the card went are dead.
+- Bench wiring: a breadboard may need a slower SPI clock (`SdSpiPins::max_freq_khz`, about 4000
+  for flying leads).
+
+**Moving data between them: `sync`.** `sync_persistent()` (`include/fujinet/fs/persist_sync.h`) is
+the console command `sync <from> <to> [--apply] [--overwrite]`. It copies `/FujiNet` (appkeys and
+the app store) and `/fujinet.yaml` one way, and nothing calls it automatically. It never deletes or
+merges, keeps a differing destination file unless `--overwrite` is given, and lists what it would do
+unless `--apply` is given. See [diagnostics](diagnostics.md#console-commands).
 
 ---
 
@@ -416,6 +468,11 @@ This reproduces the FujiNet firmware behavior:
 - Prefer SD.
 - Fall back to Flash.
 - Keep Flash updated when SD is present.
+
+The ESP32 and the Pico build this store with one shared function,
+`config::make_local_storage_config_store()`: the card (`sd0`) is the primary when it was mounted at
+boot, flash is the mirror, and without a card flash alone holds the config. The POSIX build uses the
+`host` filesystem. How this differs from `persist:/` when a card is pulled is described in 5.2.
 
 ---
 
