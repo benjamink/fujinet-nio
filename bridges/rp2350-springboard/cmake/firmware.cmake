@@ -53,3 +53,18 @@ pico_enable_stdio_uart(sbnio 0)
 pico_enable_stdio_usb(sbnio 0)
 pico_set_binary_type(sbnio copy_to_ram)
 pico_add_extra_outputs(sbnio)
+
+# Full-ROM builds can verify the actual SDK/linker/picotool output after build.
+# Small and erased-placeholder ROMs are not full-ROM validation fixtures.
+if(SPRINGBOARD_ROM)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SPRINGBOARD_ROM}")
+    file(SIZE "${SPRINGBOARD_ROM}" SPRINGBOARD_ROM_BYTES)
+    if(SPRINGBOARD_ROM_BYTES EQUAL 131072)
+        enable_testing()
+        add_test(NAME rom128_firmware
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/verify_rom128_firmware.py"
+                "${CMAKE_CURRENT_BINARY_DIR}" "${SPRINGBOARD_ROM}" --nm "${CMAKE_NM}")
+        set_tests_properties(rom128_firmware PROPERTIES TIMEOUT 30
+            REQUIRED_FILES "$<TARGET_FILE:sbnio>;${CMAKE_CURRENT_BINARY_DIR}/sbnio.bin;${CMAKE_CURRENT_BINARY_DIR}/sbnio.uf2")
+    endif()
+endif()

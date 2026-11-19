@@ -68,6 +68,22 @@ Verified on the Prism:
 - Earlier CS1 checks also covered HTTP, HTTPS and JSON requests through the
   `fujibus-link-serial-debug` backend.
 
+The following measurements are from the earlier 64 KiB firmware baseline,
+whose Prism access-time readback was 330 ns. They have not been repeated as
+matched numerical measurements with the 128 KiB firmware at 360 ns:
+
+| Earlier baseline measurement | Result |
+| --- | --- |
+| CS1 word loopback | 512/512 words in 90 ms |
+| CS1 packet loopback | 17 requests of 1-4096 bytes; 25,708 bytes each way in 260 ms, about 99 KB/s each way; 14,725 writes with no check failure |
+| Write timing | WE low for 340-406 ns; firmware sampling 53 ns after its falling edge |
+| Request-snapshot BSS cost, comparable 64 KiB builds | 219,688 to 227,876 bytes, an increase of 8,188 bytes |
+
+BSS is a build property, not an access-time measurement. These historical
+figures do not establish 330 ns support for the current firmware.
+The full 128 KiB diagnostic firmware built in Release with Pico SDK 2.3.1 has
+293,412 bytes of BSS; this is a build-specific figure.
+
 Not verified: other Visor models; removal during an active transfer; other
 access-time settings; NIO restarting under a running Palm app; long-term
 reliability; the placeholder ROM on a Visor.
@@ -238,11 +254,27 @@ Palm toolchain. It has not been tried in a Visor.
 Outputs: `build/firmware/sbnio.elf`, `sbnio.uf2` and `sbnio.bin`. The console
 banner shows the embedded ROM's size and CRC-32.
 
-Use a **360 ns minimum access time**, the tested setting for combined ROM/CS1
-traffic on the Prism. The ROM header should request `HsAT 360`, and Palm clients
-should verify the applied setting with the Handspring API before transfers,
-preserving slower settings. The bridge does not configure the Palm's bus timing;
-330 ns produced a CS1 read failure during testing.
+### Access-time policy and existing ROMs
+
+This development firmware requires a **minimum access time of 360 ns for both
+CS0 and CS1**, for 64 KiB and 128 KiB ROMs alike. The earlier baseline worked
+at the Prism's reported 330 ns; that timing is no longer supported, and its
+compatibility is not maintained during hardware development. Existing smaller
+ROMs remain valid image inputs, subject to this timing policy.
+
+ROM authors must request at least 360 ns in the card header (`HsAT 360` for
+the tested setting) and retain that requirement when rebuilding existing ROMs,
+including springboard-nio and other client ROMs. Palm clients must verify the
+applied setting through the Handspring API before normal CS1 request/reply
+transfers and preserve slower settings. A guard after initial CS1 identification reads cannot
+protect those first reads; it does not replace a suitable ROM header. The
+local production ROM builder and accompanying NioLib already use this minimum.
+
+The bridge does not configure the Palm's bus timing. Combined ROM/CS1 traffic
+passed on the Prism at a reported 360 ns; 330 ns produced a CS1 read failure.
+This does not show that every 64 KiB ROM fails at 330 ns or establish whether
+the additional CS0 instructions, changed SRAM placement, or their interaction
+caused the failure. It does not establish electrical timing margin.
 
 ## Flashing
 
@@ -293,6 +325,7 @@ or from `SBNIO_CONSOLE`, and `SBNIO_SERIAL` picks one board of several.
 | `sbnio_abi` | the `SBN_CHECK_STEP` check word, and that registers sit below `SBN_R_RESP`, the reply fits the 64 KiB window and the write register offsets are as ABI 4 says |
 | `bus_write` | `BUS_WRITE_REG` and `BUS_WRITE_DATA` against snapshots built pin by pin |
 | `rom_table` | endian conversion, short-ROM padding, full 128 KiB loading and CS1 isolation |
+| `rom128_verifier`, `rom128_verifier_optimized` | valid and malformed ELF/UF2 fixtures, including compatibility metadata and checks under `python -O` |
 | `pio_rearm` | the read engine's PIO program in epio against a model of Core1: paired CS0 and CS1 reads, OE and select overlap, cancellation, a stalled CPU, RESET, writes ignored |
 | `tooling`, `setup` | dependency bootstrap, the build scripts, `rom2c.py` and the PIO policy |
 | `pio_policy` | no `.pio` sources or pioasm rules |
@@ -303,8 +336,24 @@ hardware (Status). The optional `reply_arm` test executes the actual assembly
 with mocked MMIO. Enable it when configuring a host build with
 `-DSPRINGBOARD_ARM_TEST_PYTHON=/path/to/python-with-unicorn`; it needs Unicorn
 2.1.4 and ARM GNU tools on PATH or selected by `PICO_TOOLCHAIN_PATH`. Neither
-emulator establishes physical timing margin.
+emulator establishes physical timing margin. `reply_arm` is omitted locally
+unless explicitly enabled. The [Springboard CI job](../../.github/workflows/springboard.yml)
+runs it with Unicorn 2.1.4, plus the native Debug/sanitizer and Release suites.
 
 For a build with a full 128 KiB ROM, `scripts/verify_rom128_firmware.py BUILD ROM`
-checks flash/SRAM placement, stack separation and UF2/BIN agreement. These
-software checks do not require Palm applications or a ROM builder.
+checks flash/SRAM placement, stack separation and UF2/BIN agreement. CMake
+registers it as `rom128_firmware` for full-ROM builds; after building, run
+`ctest --test-dir BUILD --output-on-failure`. CI builds a deterministic 128 KiB fixture
+with pinned Pico SDK/picotool 2.3.1 and Arm GNU 14.2.Rel1, then runs that test
+and saves its JSON report. These software checks need no Palm ROM builder or
+hardware; the fixture is not a bootable Palm ROM.
+
+UF2 flag `0x2000` means that a family ID is present; `0x8000` means extension
+tags are present. Pinned picotool 2.3.1 emits an RP2350 compatibility block
+with both flags (`0xa000`) and a specific ignore-block extension, followed by
+firmware blocks with flag `0x2000`. The verifier accepts only that exact optional
+compatibility block and ordinary RP2350 ARM-S firmware blocks, validating their
+flags, metadata, numbering, addresses, completeness and payload against BIN.
+It rejects unknown families, other extensions and duplicate blocks. See the
+[UF2 flag definitions](https://github.com/microsoft/uf2#flags) and
+[picotool's compatibility-block implementation](https://github.com/raspberrypi/picotool/blob/2.3.1/elf2uf2/elf2uf2.cpp#L123-L158).

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 set(BRIDGE_MODE "host" CACHE STRING "host or firmware")
 set(SPRINGBOARD_ROM "" CACHE FILEPATH
-    "Springboard ROM image (up to 64 KiB) served on CS0; empty embeds an erased placeholder")
+    "Springboard ROM image (up to 128 KiB) served on CS0; empty embeds an erased placeholder")
 option(SPRINGBOARD_SANITIZE "Build the host tests with AddressSanitizer and UBSan" OFF)
 if(NOT BRIDGE_MODE MATCHES "^(host|firmware)$")
     message(FATAL_ERROR "BRIDGE_MODE must be host or firmware")

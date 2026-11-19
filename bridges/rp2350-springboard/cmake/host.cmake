@@ -30,6 +30,10 @@ springboard_test(pio_rearm src/pio_rearm_program.c)
 target_link_libraries(test_pio_rearm PRIVATE epio)
 target_compile_definitions(test_pio_rearm PRIVATE SB_PIO_REPLY_MARKER=1)
 add_test(NAME tooling COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tooling.py")
+add_test(NAME rom128_verifier COMMAND "${Python3_EXECUTABLE}" -B
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rom128_verifier.py")
+add_test(NAME rom128_verifier_optimized COMMAND "${Python3_EXECUTABLE}" -B -O
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rom128_verifier.py")
 add_test(NAME setup COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_setup.py")
 add_test(NAME pio_policy COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_pio_policy.py")
 set(SPRINGBOARD_ARM_TEST_PYTHON "" CACHE FILEPATH "Python with Unicorn for the actual ARM responder test")

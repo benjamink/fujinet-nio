@@ -130,7 +130,9 @@ sb_persistent_reply:
     pop {r4-r11, pc}
 .size sb_persistent_reply, .-sb_persistent_reply
 .ltorg
-/* Retained baseline padding; the larger tables change SRAM placement. */
+/* Non-executable 16-byte tail padding in SCRATCH_X, retained from the earlier
+ * layout. It adds no bus delay and does not preserve the main-SRAM table
+ * addresses, which are determined by the linker. */
 .balign 4
 .space 16, 0
 .section .note.GNU-stack,"",%progbits

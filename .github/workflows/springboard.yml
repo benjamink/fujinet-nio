@@ -1,0 +1,87 @@
+name: Springboard bridge
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  springboard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: bridges/rp2350-springboard
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential python3-venv libusb-1.0-0-dev
+      - name: Install pinned Arm GNU 14.2.Rel1 toolchain
+        run: |
+          python3 - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          from bridge_setup import install_toolchain
+          compiler = install_toolchain(Path(os.environ['RUNNER_TEMP']) / 'arm')
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'PICO_TOOLCHAIN_PATH={compiler}\n')
+          PY
+      - name: Prepare pinned SDK and dependencies
+        run: ./scripts/setup.sh
+      - name: Install ARM execution test dependency
+        run: |
+          python3 -m venv "$RUNNER_TEMP/arm-tests"
+          "$RUNNER_TEMP/arm-tests/bin/python" -m pip install unicorn==2.1.4
+      - name: Debug host tests with sanitizers and real ARM assembly
+        run: |
+          cmake -S . -B "$RUNNER_TEMP/host-debug" -G Ninja \
+            -DBRIDGE_MODE=host -DCMAKE_BUILD_TYPE=Debug -DSPRINGBOARD_SANITIZE=ON \
+            -DSPRINGBOARD_ARM_TEST_PYTHON="$RUNNER_TEMP/arm-tests/bin/python"
+          cmake --build "$RUNNER_TEMP/host-debug" --parallel 2
+          ctest --test-dir "$RUNNER_TEMP/host-debug" --show-only=json-v1 | python3 -c '
+          import json, sys
+          names = {test["name"] for test in json.load(sys.stdin)["tests"]}
+          missing = {"reply_arm", "rom128_verifier", "rom128_verifier_optimized"} - names
+          if missing:
+              sys.exit(f"Required tests missing: {sorted(missing)}")'
+          ctest --test-dir "$RUNNER_TEMP/host-debug" --output-on-failure --no-tests=error
+      - name: Release host tests
+        run: |
+          cmake -S . -B "$RUNNER_TEMP/host-release" -G Ninja \
+            -DBRIDGE_MODE=host -DCMAKE_BUILD_TYPE=Release -DSPRINGBOARD_SANITIZE=OFF
+          cmake --build "$RUNNER_TEMP/host-release" --parallel 2
+          ctest --test-dir "$RUNNER_TEMP/host-release" --output-on-failure --no-tests=error
+      - name: Build and verify full-ROM firmware with Pico SDK 2.3.1
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          # Deterministic full-window data exercises both halves; not a bootable Palm ROM.
+          image = bytes((i * 73 ^ (i >> 8) ^ (i >> 16)) & 255 for i in range(0x20000))
+          (Path(os.environ['RUNNER_TEMP']) / 'rom128.rom').write_bytes(image)
+          PY
+          cmake -S . -B "$RUNNER_TEMP/firmware" -G Ninja \
+            -DBRIDGE_MODE=firmware -DCMAKE_BUILD_TYPE=Release \
+            -DPICO_BOARD=waveshare_core2350b -DPICO_PLATFORM=rp2350-arm-s \
+            -DPICO_TOOLCHAIN_PATH="$PICO_TOOLCHAIN_PATH" \
+            -DSPRINGBOARD_ROM="$RUNNER_TEMP/rom128.rom"
+          cmake --build "$RUNNER_TEMP/firmware" --parallel 2
+          ctest --test-dir "$RUNNER_TEMP/firmware" -R '^rom128_firmware$' \
+            --output-on-failure --no-tests=error
+      - name: Upload placement verification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: springboard-rom128-verification
+          path: ${{ runner.temp }}/firmware/rom128-verification.json
+          if-no-files-found: error
